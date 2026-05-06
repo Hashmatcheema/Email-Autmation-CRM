@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($items = Get-ChildItem -Path \"C:\\\\Users\\\\Admin\\\\Downloads\\\\eitacies-crm-platform\"; $items | ForEach-Object { \"$\\($_.Name\\) $\\(if\\($_.PSIsContainer\\) { '[DIR]' } else { '[FILE]' }\\)\" })",
+      "PowerShell([System.IO.Directory]::GetFileSystemEntries\\(\"C:\\\\Users\\\\Admin\\\\Downloads\\\\eitacies-crm-platform\"\\) | ForEach-Object { $_ })",
+      "PowerShell([System.IO.Directory]::GetFileSystemEntries\\(\"C:\\\\Users\\\\Admin\\\\Downloads\\\\eitacies-crm-platform\\\\.claude\"\\) | ForEach-Object { $_ })"
+    ]
+  }
+}
