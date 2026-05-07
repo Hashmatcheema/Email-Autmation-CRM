@@ -53,11 +53,11 @@ export function Sidebar() {
       <div className="border-t border-slate-800 p-4">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-slate-200">
-            {(profile?.full_name?.[0] ?? profile?.email?.[0] ?? '?').toUpperCase()}
+            {(profile?.name?.[0] ?? profile?.email?.[0] ?? '?').toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-medium text-white">
-              {profile?.full_name ?? profile?.email}
+              {profile?.name ?? profile?.email}
             </p>
             <p className="text-[11px] capitalize text-slate-500">{profile?.role}</p>
           </div>

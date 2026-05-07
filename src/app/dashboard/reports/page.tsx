@@ -6,6 +6,8 @@ import { useAuth } from '@/components/providers/AuthProvider'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LEAD_STAGES, STAGE_LABELS, STAGE_COLORS, type Lead } from '@/lib/types'
 
+const REPORT_COLUMNS = 'lead_id,stage,score,hiring_signal,lead_owner_email,next_followup_date'
+
 export default function ReportsPage() {
   const supabase = getSupabaseBrowserClient()
   const { profile } = useAuth()
@@ -14,20 +16,21 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (!profile) return
-    let query = supabase.from('leads').select('*')
-    if (profile.role === 'sales') query = query.eq('lead_owner_email', profile.email)
-    query.then((result: { data: unknown }) => {
-      setLeads((result.data as Lead[]) ?? [])
+    async function load() {
+      let query = supabase.from('leads').select(REPORT_COLUMNS)
+      if (profile!.role === 'sales') query = query.eq('lead_owner_email', profile!.email)
+      const { data } = await query
+      setLeads((data as Lead[]) ?? [])
       setLoading(false)
-    })
+    }
+    load()
   }, [supabase, profile])
 
   const total = leads.length
-  const byStage = LEAD_STAGES.map((s) => ({
-    stage: s,
-    count: leads.filter((l) => l.stage === s).length,
-    pct: total ? Math.round((leads.filter((l) => l.stage === s).length / total) * 100) : 0,
-  }))
+  const byStage = LEAD_STAGES.map((s) => {
+    const count = leads.filter((l) => l.stage === s).length
+    return { stage: s, count, pct: total ? Math.round((count / total) * 100) : 0 }
+  })
 
   const ownerMap: Record<string, number> = {}
   leads.forEach((l) => {
@@ -41,15 +44,20 @@ export default function ReportsPage() {
     ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
     : null
 
-  const hiringCount = leads.filter((l) => l.hiring_signal === true).length
+  const hiringCount = leads.filter((l) => l.hiring_signal === 'Yes').length
+  const hotLeads = leads.filter((l) => l.score !== null && (l.score as number) >= 70).length
+  const doNotContact = leads.filter((l) => l.stage === 'do_not_contact').length
+
 
   return (
     <div className="space-y-6">
       {/* Summary row */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard label="Total Leads" value={String(total)} />
-        <SummaryCard label="Average Score" value={avgScore !== null ? String(avgScore) : '—'} />
-        <SummaryCard label="Hiring Signal" value={String(hiringCount)} sub={`of ${total} leads`} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <SummaryCard label="Total Leads" value={String(total)} loading={loading} />
+        <SummaryCard label="Average Score" value={avgScore !== null ? String(avgScore) : '—'} loading={loading} />
+        <SummaryCard label="Hiring Signal" value={String(hiringCount)} sub={`of ${total} leads`} loading={loading} />
+        <SummaryCard label="Hot Leads (≥70)" value={String(hotLeads)} loading={loading} />
+        <SummaryCard label="Do Not Contact" value={String(doNotContact)} loading={loading} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -136,12 +144,16 @@ export default function ReportsPage() {
   )
 }
 
-function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function SummaryCard({ label, value, sub, loading }: { label: string; value: string; sub?: string; loading?: boolean }) {
   return (
     <Card className="border-slate-200 shadow-none">
       <CardContent className="p-5">
         <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
-        <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
+        {loading ? (
+          <div className="mt-2 h-7 w-12 animate-pulse rounded bg-slate-100" />
+        ) : (
+          <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
+        )}
         {sub && <p className="mt-0.5 text-xs text-slate-400">{sub}</p>}
       </CardContent>
     </Card>

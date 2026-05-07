@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Plus, Pencil, CheckCircle2, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -11,16 +11,27 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
-import type { EmailTemplate } from '@/lib/types'
+import { TEMPLATE_TYPES, TEMPLATE_TYPE_LABELS, type EmailTemplate } from '@/lib/types'
 
-const EMPTY_FORM = { template_name: '', template_type: '', subject: '', body: '', active: true }
+const VARIABLES: { label: string; value: string }[] = [
+  { label: 'First Name', value: '{{first_name}}' },
+  { label: 'Company Name', value: '{{company_name}}' },
+  { label: 'Contact Name', value: '{{contact_name}}' },
+  { label: 'Sender Name', value: '{{sender_name}}' },
+  { label: 'Industry', value: '{{industry}}' },
+  { label: 'Hiring Signal', value: '{{hiring_signal}}' },
+]
+
+const EMPTY_FORM = { template_name: '', template_type: '', subject: '', body: '', is_active: true }
 
 export default function TemplatesPage() {
   const supabase = getSupabaseBrowserClient()
@@ -28,28 +39,28 @@ export default function TemplatesPage() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
-  // create dialog
   const [createOpen, setCreateOpen] = useState(false)
   const [createForm, setCreateForm] = useState(EMPTY_FORM)
   const [createSaving, setCreateSaving] = useState(false)
 
-  // edit dialog
-  const [editTarget, setEditTarget] = useState<EmailTemplate | null>(null)
+  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null)
   const [editForm, setEditForm] = useState(EMPTY_FORM)
   const [editSaving, setEditSaving] = useState(false)
 
-  async function load() {
-    const { data, error: err } = await supabase
-      .from('email_templates')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (err) { setError(err.message); setLoading(false); return }
-    setTemplates((data as EmailTemplate[]) ?? [])
-    setLoading(false)
-  }
-
-  useEffect(() => { load() }, [supabase])
+  useEffect(() => {
+    async function fetchTemplates() {
+      const { data, error: err } = await supabase
+        .from('email_templates')
+        .select('template_id,template_name,template_type,subject,is_active')
+        .order('template_name', { ascending: true })
+      if (err) { setError(err.message); setLoading(false); return }
+      setTemplates((data as EmailTemplate[]) ?? [])
+      setLoading(false)
+    }
+    fetchTemplates()
+  }, [supabase, refreshKey])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -59,47 +70,58 @@ export default function TemplatesPage() {
       template_type: createForm.template_type || null,
       subject: createForm.subject,
       body: createForm.body,
-      active: createForm.active,
-      created_by: profile?.email,
+      is_active: createForm.is_active,
+      created_by_email: profile?.email ?? null,
     })
     if (err) { toast.error(err.message); setCreateSaving(false); return }
     toast.success('Template created')
     setCreateForm(EMPTY_FORM)
     setCreateOpen(false)
     setCreateSaving(false)
-    load()
+    setRefreshKey((k) => k + 1)
   }
 
   function openEdit(t: EmailTemplate) {
-    setEditTarget(t)
     setEditForm({
       template_name: t.template_name,
       template_type: t.template_type ?? '',
       subject: t.subject,
-      body: t.body,
-      active: t.active ?? true,
+      body: t.body ?? '',
+      is_active: t.is_active ?? true,
     })
+    setSelectedTemplate(t)
   }
 
   async function handleEdit(e: React.FormEvent) {
     e.preventDefault()
-    if (!editTarget) return
+    if (!selectedTemplate) return
     setEditSaving(true)
+
+    let body = editForm.body
+    if (!body && selectedTemplate.template_id) {
+      const { data } = await supabase
+        .from('email_templates')
+        .select('body')
+        .eq('template_id', selectedTemplate.template_id)
+        .single()
+      body = (data as { body: string } | null)?.body ?? ''
+    }
+
     const { error: err } = await supabase
       .from('email_templates')
       .update({
         template_name: editForm.template_name,
         template_type: editForm.template_type || null,
         subject: editForm.subject,
-        body: editForm.body,
-        active: editForm.active,
+        body,
+        is_active: editForm.is_active,
       })
-      .eq('id', editTarget.id)
+      .eq('template_id', selectedTemplate.template_id)
     if (err) { toast.error(err.message); setEditSaving(false); return }
     toast.success('Template updated')
-    setEditTarget(null)
+    setSelectedTemplate(null)
     setEditSaving(false)
-    load()
+    setRefreshKey((k) => k + 1)
   }
 
   function setCreate<K extends keyof typeof EMPTY_FORM>(k: K, v: (typeof EMPTY_FORM)[K]) {
@@ -130,12 +152,32 @@ export default function TemplatesPage() {
               form={createForm}
               setField={setCreate}
               onSubmit={handleCreate}
+              onCancel={() => setCreateOpen(false)}
               saving={createSaving}
               submitLabel="Create Template"
             />
           </DialogContent>
         </Dialog>
       </div>
+
+      <Dialog
+        open={selectedTemplate !== null}
+        onOpenChange={(open) => { if (!open) setSelectedTemplate(null) }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Template</DialogTitle>
+          </DialogHeader>
+          <TemplateForm
+            form={editForm}
+            setField={setEdit}
+            onSubmit={handleEdit}
+            onCancel={() => setSelectedTemplate(null)}
+            saving={editSaving}
+            submitLabel="Save Changes"
+          />
+        </DialogContent>
+      </Dialog>
 
       {loading ? (
         <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-16">
@@ -165,12 +207,12 @@ export default function TemplatesPage() {
             </TableHeader>
             <TableBody>
               {templates.map((t, idx) => (
-                <TableRow key={t.id || idx} className="border-slate-100 transition-colors hover:bg-slate-50">
+                <TableRow key={t.template_id || idx} className="border-slate-100 transition-colors hover:bg-slate-50">
                   <TableCell className="font-medium text-sm text-slate-900">{t.template_name}</TableCell>
                   <TableCell>
                     {t.template_type ? (
                       <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                        {t.template_type}
+                        {TEMPLATE_TYPE_LABELS[t.template_type] ?? t.template_type}
                       </span>
                     ) : (
                       <span className="text-xs text-slate-400">—</span>
@@ -180,39 +222,23 @@ export default function TemplatesPage() {
                     <span className="block truncate text-sm text-slate-600">{t.subject}</span>
                   </TableCell>
                   <TableCell className="text-center">
-                    {t.active ? (
+                    {t.is_active ? (
                       <CheckCircle2 className="mx-auto h-4 w-4 text-green-500" />
                     ) : (
                       <XCircle className="mx-auto h-4 w-4 text-slate-300" />
                     )}
                   </TableCell>
                   <TableCell>
-                    <Dialog
-                      open={editTarget?.id === t.id}
-                      onOpenChange={(open) => { if (!open) setEditTarget(null) }}
+                    <button
+                      type="button"
+                      onClick={() => openEdit(t)}
+                      className={cn(
+                        buttonVariants({ variant: 'ghost', size: 'icon' }),
+                        'h-7 w-7 text-slate-400 hover:text-slate-700'
+                      )}
                     >
-                      <DialogTrigger
-                        onClick={() => openEdit(t)}
-                        className={cn(
-                          buttonVariants({ variant: 'ghost', size: 'icon' }),
-                          'h-7 w-7 text-slate-400 hover:text-slate-700'
-                        )}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </DialogTrigger>
-                      <DialogContent className="max-w-lg">
-                        <DialogHeader>
-                          <DialogTitle>Edit Template</DialogTitle>
-                        </DialogHeader>
-                        <TemplateForm
-                          form={editForm}
-                          setField={setEdit}
-                          onSubmit={handleEdit}
-                          saving={editSaving}
-                          submitLabel="Save Changes"
-                        />
-                      </DialogContent>
-                    </Dialog>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -229,22 +255,42 @@ interface FormFields {
   template_type: string
   subject: string
   body: string
-  active: boolean
+  is_active: boolean
 }
 
 function TemplateForm({
   form,
   setField,
   onSubmit,
+  onCancel,
   saving,
   submitLabel,
 }: {
   form: FormFields
   setField: <K extends keyof FormFields>(k: K, v: FormFields[K]) => void
   onSubmit: (e: React.FormEvent) => void
+  onCancel: () => void
   saving: boolean
   submitLabel: string
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  function insertVariable(variable: string) {
+    const el = textareaRef.current
+    if (!el) {
+      setField('body', form.body + variable)
+      return
+    }
+    const start = el.selectionStart ?? form.body.length
+    const end = el.selectionEnd ?? form.body.length
+    const next = form.body.slice(0, start) + variable + form.body.slice(end)
+    setField('body', next)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + variable.length, start + variable.length)
+    })
+  }
+
   return (
     <form onSubmit={onSubmit} className="mt-2 space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -261,13 +307,20 @@ function TemplateForm({
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs font-medium text-slate-700">Type</Label>
-          <Input
-            value={form.template_type}
-            onChange={(e) => setField('template_type', e.target.value)}
-            placeholder="e.g. cold, follow_up"
-          />
+          <Select value={form.template_type} onValueChange={(v) => setField('template_type', v ?? '')}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select type…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">None</SelectItem>
+              {TEMPLATE_TYPES.map((t) => (
+                <SelectItem key={t} value={t}>{TEMPLATE_TYPE_LABELS[t]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
+
       <div className="space-y-1.5">
         <Label className="text-xs font-medium text-slate-700">
           Subject <span className="text-red-500">*</span>
@@ -279,31 +332,54 @@ function TemplateForm({
           placeholder="Email subject line"
         />
       </div>
+
       <div className="space-y-1.5">
-        <Label className="text-xs font-medium text-slate-700">Body</Label>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs font-medium text-slate-700">Body</Label>
+        </div>
+        <div className="flex flex-wrap gap-1 mb-2">
+          {VARIABLES.map(({ label, value }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => insertVariable(value)}
+              className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-mono text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <Textarea
+          ref={textareaRef}
           rows={6}
           value={form.body}
           onChange={(e) => setField('body', e.target.value)}
-          placeholder="Email body…"
-          className="resize-none"
+          placeholder="Email body… Use the chips above to insert variables."
+          className="resize-none font-mono text-xs"
         />
       </div>
+
       <div className="flex items-center gap-2">
         <input
           id="active-toggle"
           type="checkbox"
-          checked={form.active}
-          onChange={(e) => setField('active', e.target.checked)}
+          checked={form.is_active}
+          onChange={(e) => setField('is_active', e.target.checked)}
           className="h-4 w-4 rounded border-slate-300 accent-blue-600"
         />
         <Label htmlFor="active-toggle" className="cursor-pointer text-sm text-slate-700">
           Active
         </Label>
       </div>
-      <Button type="submit" disabled={saving} className="w-full bg-blue-600 hover:bg-blue-700">
-        {saving ? 'Saving…' : submitLabel}
-      </Button>
+
+      <div className="flex gap-3">
+        <Button type="submit" disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-700">
+          {saving ? 'Saving…' : submitLabel}
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+      </div>
     </form>
   )
 }

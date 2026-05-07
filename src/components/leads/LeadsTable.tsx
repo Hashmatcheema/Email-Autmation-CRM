@@ -39,12 +39,12 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
         <TableBody>
           {leads.map((lead, idx) => (
             <TableRow
-              key={lead.id || idx}
+              key={lead.lead_id || idx}
               className="border-slate-100 transition-colors hover:bg-slate-50"
             >
               <TableCell>
                 <Link
-                  href={`/dashboard/leads/${lead.id}`}
+                  href={`/dashboard/leads/${lead.lead_id}`}
                   className="flex items-center gap-2.5 group"
                 >
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600 group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">
@@ -86,9 +86,9 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
                 )}
               </TableCell>
               <TableCell className="text-center">
-                {lead.hiring_signal === true ? (
+                {lead.hiring_signal === 'Yes' ? (
                   <CheckCircle2 className="mx-auto h-4 w-4 text-green-500" />
-                ) : lead.hiring_signal === false ? (
+                ) : lead.hiring_signal === 'No' ? (
                   <XCircle className="mx-auto h-4 w-4 text-slate-300" />
                 ) : (
                   <span className="text-xs text-slate-400">—</span>
@@ -99,7 +99,7 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
               </TableCell>
               <TableCell>
                 <Link
-                  href={`/dashboard/leads/${lead.id}/edit`}
+                  href={`/dashboard/leads/${lead.lead_id}/edit`}
                   className={cn(
                     buttonVariants({ variant: 'ghost', size: 'icon' }),
                     'h-7 w-7 text-slate-400 hover:text-slate-700'

@@ -11,7 +11,7 @@ import { buttonVariants } from '@/components/ui/button'
 import type { Lead } from '@/lib/types'
 
 export default function EditLeadPage() {
-  const { id } = useParams<{ id: string }>()
+  const { lead_id } = useParams<{ lead_id: string }>()
   const router = useRouter()
   const supabase = getSupabaseBrowserClient()
   const [lead, setLead] = useState<Lead | null>(null)
@@ -21,7 +21,7 @@ export default function EditLeadPage() {
     supabase
       .from('leads')
       .select('*')
-      .eq('id', id)
+      .eq('lead_id', lead_id)
       .single()
       .then((result: { data: unknown; error: unknown }) => {
         if (!result.data) {
@@ -31,7 +31,7 @@ export default function EditLeadPage() {
         }
         setLead(result.data as Lead)
       })
-  }, [id, router, supabase])
+  }, [lead_id, router, supabase])
 
   if (error) {
     return (
@@ -54,7 +54,7 @@ export default function EditLeadPage() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Link
-          href={`/dashboard/leads/${id}`}
+          href={`/dashboard/leads/${lead_id}`}
           className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }), 'h-8 w-8 text-slate-500')}
         >
           <ArrowLeft className="h-4 w-4" />

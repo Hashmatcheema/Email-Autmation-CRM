@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
+import { useAuth } from '@/components/providers/AuthProvider'
+import { logActivity } from '@/lib/services/activities'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,7 +13,11 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { LEAD_STAGES, STAGE_LABELS, type Lead } from '@/lib/types'
+import {
+  LEAD_STAGES, STAGE_LABELS,
+  COMPANY_TYPE_OPTIONS, CLIENT_RELATIONSHIP_OPTIONS, LEAD_SOURCE_OPTIONS,
+  type Lead,
+} from '@/lib/types'
 
 interface Props {
   lead?: Lead
@@ -21,18 +27,28 @@ interface Props {
 export function LeadForm({ lead, mode }: Props) {
   const supabase = getSupabaseBrowserClient()
   const router = useRouter()
+  const { profile } = useAuth()
   const [loading, setLoading] = useState(false)
 
   const [form, setForm] = useState({
     contact_name: lead?.contact_name ?? '',
-    account: lead?.account ?? '',
     email: lead?.email ?? '',
     phone: lead?.phone ?? '',
+    account: lead?.account ?? '',
+    company_domain: lead?.company_domain ?? '',
+    company_type: lead?.company_type ?? '',
+    industry: lead?.industry ?? '',
+    size: lead?.size ?? '',
+    client_relationship: lead?.client_relationship ?? '',
     stage: lead?.stage ?? 'new',
     category: lead?.category ?? '',
     score: lead?.score?.toString() ?? '',
-    hiring_signal: lead?.hiring_signal ?? false,
+    lead_source: lead?.lead_source ?? '',
     lead_owner_email: lead?.lead_owner_email ?? '',
+    lead_owner_name: lead?.lead_owner_name ?? '',
+    hiring_signal: lead?.hiring_signal ?? '',
+    hiring_signal_details: lead?.hiring_signal_details ?? '',
+    next_followup_date: lead?.next_followup_date?.slice(0, 10) ?? '',
     notes: lead?.notes ?? '',
   })
 
@@ -44,25 +60,61 @@ export function LeadForm({ lead, mode }: Props) {
     e.preventDefault()
     setLoading(true)
 
-    const payload = {
-      contact_name: form.contact_name || null,
-      account: form.account || null,
-      email: form.email || null,
-      phone: form.phone || null,
-      stage: form.stage || null,
-      category: form.category || null,
-      score: form.score !== '' ? parseFloat(form.score) : null,
-      hiring_signal: form.hiring_signal,
-      lead_owner_email: form.lead_owner_email || null,
-      notes: form.notes || null,
-      updated_at: new Date().toISOString(),
+    const now = new Date().toISOString()
+    const str = (v: string) => v.trim() || null
+    const scoreVal = form.score !== '' ? parseFloat(form.score) : null
+
+    const payload: Record<string, unknown> = {
+      contact_name: str(form.contact_name),
+      email: str(form.email),
+      phone: str(form.phone),
+      account: str(form.account),
+      company_domain: str(form.company_domain),
+      company_type: str(form.company_type),
+      industry: str(form.industry),
+      size: str(form.size),
+      client_relationship: str(form.client_relationship),
+      stage: form.stage || 'new',
+      category: str(form.category),
+      score: scoreVal,
+      lead_source: str(form.lead_source),
+      lead_owner_email: str(form.lead_owner_email),
+      lead_owner_name: str(form.lead_owner_name),
+      hiring_signal: str(form.hiring_signal),
+      hiring_signal_details: str(form.hiring_signal_details),
+      next_followup_date: str(form.next_followup_date),
+      notes: str(form.notes),
+      last_updated: now,
+    }
+
+    if (mode === 'create') {
+      Object.assign(payload, {
+        stage: 'new',
+        created_at: now,
+        campaign_status: 'not_sent',
+        bounce_status: 'none',
+        complaint_status: 'none',
+        email_opt_in_status: true,
+        unsubscribed: false,
+        created_by_email: profile?.email ?? null,
+        created_by_name: profile?.name ?? null,
+      })
     }
 
     let error
+    let newLeadId: string | null = null
+
     if (mode === 'create') {
-      ;({ error } = await supabase.from('leads').insert(payload))
+      const result = await supabase.from('leads').insert(payload).select('lead_id').single()
+      error = result.error
+      newLeadId = (result.data as { lead_id: string } | null)?.lead_id ?? null
     } else {
-      ;({ error } = await supabase.from('leads').update(payload).eq('id', lead!.id))
+      const result = await supabase
+        .from('leads')
+        .update(payload)
+        .eq('lead_id', lead!.lead_id)
+      error = result.error
+      newLeadId = lead!.lead_id
     }
 
     if (error) {
@@ -71,14 +123,32 @@ export function LeadForm({ lead, mode }: Props) {
       return
     }
 
+    const actorEmail = profile?.email ?? 'unknown'
+    if (newLeadId) {
+      await logActivity(
+        newLeadId,
+        mode === 'create' ? 'lead_created' : 'lead_updated',
+        mode === 'create'
+          ? `Lead created by ${actorEmail}`
+          : `Lead updated by ${actorEmail}`,
+        actorEmail
+      )
+    }
+
     toast.success(mode === 'create' ? 'Lead created' : 'Lead updated')
-    router.push('/dashboard/leads')
+
+    if (newLeadId) {
+      router.push(`/dashboard/leads/${newLeadId}`)
+    } else {
+      router.push('/dashboard/leads')
+    }
     router.refresh()
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
-      {/* Basic Info */}
+
+      {/* Contact Info */}
       <fieldset className="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
         <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
           Contact Info
@@ -92,19 +162,13 @@ export function LeadForm({ lead, mode }: Props) {
               required
             />
           </Field>
-          <Field label="Account / Company">
-            <Input
-              value={form.account}
-              onChange={(e) => setField('account', e.target.value)}
-              placeholder="Company name"
-            />
-          </Field>
-          <Field label="Email">
+          <Field label="Email" required>
             <Input
               type="email"
               value={form.email}
               onChange={(e) => setField('email', e.target.value)}
               placeholder="email@example.com"
+              required
             />
           </Field>
           <Field label="Phone">
@@ -113,6 +177,70 @@ export function LeadForm({ lead, mode }: Props) {
               onChange={(e) => setField('phone', e.target.value)}
               placeholder="+1 (555) 000-0000"
             />
+          </Field>
+        </div>
+      </fieldset>
+
+      {/* Company Info */}
+      <fieldset className="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+        <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Company Info
+        </legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Account / Company" required>
+            <Input
+              value={form.account}
+              onChange={(e) => setField('account', e.target.value)}
+              placeholder="Company name"
+              required
+            />
+          </Field>
+          <Field label="Website / Domain">
+            <Input
+              value={form.company_domain}
+              onChange={(e) => setField('company_domain', e.target.value)}
+              placeholder="example.com"
+            />
+          </Field>
+          <Field label="Company Type">
+            <Select value={form.company_type} onValueChange={(v) => setField('company_type', v ?? '')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select type…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">None</SelectItem>
+                {COMPANY_TYPE_OPTIONS.map((o) => (
+                  <SelectItem key={o} value={o}>{o}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Industry">
+            <Input
+              value={form.industry}
+              onChange={(e) => setField('industry', e.target.value)}
+              placeholder="e.g. Technology, Finance"
+            />
+          </Field>
+          <Field label="Company Size">
+            <Input
+              value={form.size}
+              onChange={(e) => setField('size', e.target.value)}
+              placeholder="e.g. 50-200, 500+"
+            />
+          </Field>
+          <Field label="Relationship">
+            <Select value={form.client_relationship} onValueChange={(v) => setField('client_relationship', v ?? '')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">None</SelectItem>
+                {CLIENT_RELATIONSHIP_OPTIONS.map((o) => (
+                  <SelectItem key={o} value={o}>{o}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
         </div>
       </fieldset>
@@ -144,7 +272,7 @@ export function LeadForm({ lead, mode }: Props) {
             />
           </Field>
 
-          <Field label="Score">
+          <Field label="Score (0–100)">
             <Input
               type="number"
               value={form.score}
@@ -155,27 +283,70 @@ export function LeadForm({ lead, mode }: Props) {
             />
           </Field>
 
-          <Field label="Lead Owner Email">
+          <Field label="Lead Source">
+            <Select value={form.lead_source} onValueChange={(v) => setField('lead_source', v ?? '')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select source…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">None</SelectItem>
+                {LEAD_SOURCE_OPTIONS.map((o) => (
+                  <SelectItem key={o} value={o}>{o}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label="Lead Owner Email" required>
             <Input
               type="email"
               value={form.lead_owner_email}
               onChange={(e) => setField('lead_owner_email', e.target.value)}
               placeholder="owner@example.com"
+              required
             />
           </Field>
 
-          <div className="flex items-center gap-3 pt-1 sm:col-span-2">
-            <input
-              id="hiring_signal"
-              type="checkbox"
-              checked={form.hiring_signal}
-              onChange={(e) => setField('hiring_signal', e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600 accent-blue-600"
+          <Field label="Lead Owner Name">
+            <Input
+              value={form.lead_owner_name}
+              onChange={(e) => setField('lead_owner_name', e.target.value)}
+              placeholder="Full name"
             />
-            <Label htmlFor="hiring_signal" className="cursor-pointer text-sm font-medium text-slate-700">
-              Hiring Signal detected
-            </Label>
-          </div>
+          </Field>
+
+          <Field label="Next Follow-up Date">
+            <Input
+              type="date"
+              value={form.next_followup_date}
+              onChange={(e) => setField('next_followup_date', e.target.value)}
+            />
+          </Field>
+
+          <Field label="Hiring Signal">
+            <Select value={form.hiring_signal} onValueChange={(v) => setField('hiring_signal', v ?? '')}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Unknown</SelectItem>
+                <SelectItem value="Yes">Yes</SelectItem>
+                <SelectItem value="No">No</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          {form.hiring_signal === 'Yes' && (
+            <div className="sm:col-span-2">
+              <Field label="Hiring Signal Details">
+                <Input
+                  value={form.hiring_signal_details}
+                  onChange={(e) => setField('hiring_signal_details', e.target.value)}
+                  placeholder="e.g. 5 open SDE roles on LinkedIn"
+                />
+              </Field>
+            </div>
+          )}
         </div>
       </fieldset>
 

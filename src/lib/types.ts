@@ -1,15 +1,15 @@
 export type UserRole = 'admin' | 'sales'
 
 export interface UserProfile {
-  id: string
+  user_id: string
   email: string
   role: UserRole
-  full_name: string | null
+  name: string | null
   created_at: string
 }
 
 export interface Lead {
-  id: string
+  lead_id: string
   contact_name: string | null
   account: string | null
   email: string | null
@@ -17,31 +17,49 @@ export interface Lead {
   stage: string | null
   category: string | null
   score: number | null
-  hiring_signal: boolean | null
+  hiring_signal: string | null
   lead_owner_email: string | null
   notes: string | null
   created_at: string
-  updated_at: string | null
+  last_updated?: string | null
+  client_relationship?: string | null
+  industry?: string | null
+  company_domain?: string | null
+  company_type?: string | null
+  size?: string | null
+  lead_source?: string | null
+  lead_owner_name?: string | null
+  hiring_signal_details?: string | null
+  next_followup_date?: string | null
+  last_communication?: string | null
+  campaign_status?: string | null
+  bounce_status?: string | null
+  complaint_status?: string | null
+  email_opt_in_status?: boolean | null
+  unsubscribed?: boolean | null
+  is_daily_recommended?: boolean | null
+  created_by_email?: string | null
+  created_by_name?: string | null
 }
 
 export interface LeadActivity {
-  id: string
+  activity_id: string
   lead_id: string
   activity_type: string
-  description: string | null
-  created_at: string
-  created_by: string | null
+  notes: string | null
+  activity_date: string
+  performed_by: string | null
 }
 
 export interface EmailTemplate {
-  id: string
+  template_id: string
   template_name: string
   template_type: string | null
   subject: string
   body: string
-  active: boolean | null
-  created_at: string
-  created_by: string | null
+  is_active: boolean | null
+  created_at?: string
+  created_by_email?: string | null
 }
 
 export const LEAD_STAGES = [
@@ -84,3 +102,54 @@ export const STAGE_COLORS: Record<string, string> = {
   closed_won: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   closed_lost: 'bg-gray-100 text-gray-600 border-gray-200',
 }
+
+export const TEMPLATE_TYPES = [
+  'initial_outreach',
+  'follow_up_1',
+  'follow_up_2',
+  'follow_up_3',
+  'campaign',
+] as const
+
+export type TemplateType = (typeof TEMPLATE_TYPES)[number]
+
+export const TEMPLATE_TYPE_LABELS: Record<string, string> = {
+  initial_outreach: 'Initial Outreach',
+  follow_up_1: 'Follow Up 1',
+  follow_up_2: 'Follow Up 2',
+  follow_up_3: 'Follow Up 3',
+  campaign: 'Campaign',
+}
+
+export const COMPANY_TYPE_OPTIONS = [
+  'Startup',
+  'SMB',
+  'Mid-Market',
+  'Enterprise',
+  'Agency',
+  'Non-Profit',
+  'Government',
+  'Other',
+]
+
+export const CLIENT_RELATIONSHIP_OPTIONS = [
+  'Cold',
+  'Warm',
+  'Existing Client',
+  'Former Client',
+  'Referral',
+  'Partner',
+]
+
+export const LEAD_SOURCE_OPTIONS = [
+  'Apollo',
+  'LinkedIn',
+  'Oorwin',
+  'Referral',
+  'Website',
+  'Cold Outreach',
+  'Event',
+  'Apify',
+  'Manual',
+  'Other',
+]

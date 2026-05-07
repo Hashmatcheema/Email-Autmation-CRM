@@ -37,8 +37,8 @@ export function Header() {
     router.push('/login')
   }
 
-  const initials = profile?.full_name
-    ? profile.full_name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+  const initials = profile?.name
+    ? profile.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
     : (profile?.email?.[0] ?? '?').toUpperCase()
 
   return (
@@ -58,13 +58,13 @@ export function Header() {
             {initials}
           </div>
           <span className="hidden text-sm font-medium sm:block">
-            {profile?.full_name ?? profile?.email?.split('@')[0]}
+            {profile?.name ?? profile?.email?.split('@')[0]}
           </span>
           <ChevronRight className="h-3.5 w-3.5 rotate-90 text-slate-400" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel className="pb-1">
-            <p className="truncate text-sm font-medium">{profile?.full_name ?? profile?.email}</p>
+            <p className="truncate text-sm font-medium">{profile?.name ?? profile?.email}</p>
             <p className="mt-0.5 text-xs capitalize text-muted-foreground">{profile?.role}</p>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
