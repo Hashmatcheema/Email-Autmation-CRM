@@ -6,6 +6,7 @@ export interface UserProfile {
   role: UserRole
   name: string | null
   created_at: string
+  is_active?: boolean | null
 }
 
 export interface Lead {
@@ -121,35 +122,99 @@ export const TEMPLATE_TYPE_LABELS: Record<string, string> = {
   campaign: 'Campaign',
 }
 
-export const COMPANY_TYPE_OPTIONS = [
-  'Startup',
-  'SMB',
-  'Mid-Market',
-  'Enterprise',
-  'Agency',
-  'Non-Profit',
-  'Government',
-  'Other',
-]
+// DB check constraint values for company_type
+export const COMPANY_TYPE_OPTIONS = ['startup', 'smb', 'enterprise', 'unknown'] as const
+export const COMPANY_TYPE_LABELS: Record<string, string> = {
+  startup: 'Startup',
+  smb: 'SMB',
+  enterprise: 'Enterprise',
+  unknown: 'Unknown',
+}
 
+// DB check constraint values for client_relationship
 export const CLIENT_RELATIONSHIP_OPTIONS = [
-  'Cold',
-  'Warm',
-  'Existing Client',
-  'Former Client',
-  'Referral',
-  'Partner',
-]
+  'current_client',
+  'past_client',
+  'partner',
+  'prospect',
+  'potential_lead',
+  'unknown',
+] as const
+export const CLIENT_RELATIONSHIP_LABELS: Record<string, string> = {
+  current_client: 'Current Client',
+  past_client: 'Past Client',
+  partner: 'Partner',
+  prospect: 'Prospect',
+  potential_lead: 'Potential Lead',
+  unknown: 'Unknown',
+}
 
+// DB check constraint values for lead_source
 export const LEAD_SOURCE_OPTIONS = [
-  'Apollo',
-  'LinkedIn',
-  'Oorwin',
-  'Referral',
-  'Website',
-  'Cold Outreach',
-  'Event',
-  'Apify',
-  'Manual',
-  'Other',
-]
+  'manual',
+  'growjo',
+  'google_sheet',
+  'csv_import',
+  'linkedin_job_fetcher',
+  'api_import',
+  'oorwin',
+  'other_workflow',
+] as const
+export const LEAD_SOURCE_LABELS: Record<string, string> = {
+  manual: 'Manual',
+  growjo: 'Growjo',
+  google_sheet: 'Google Sheet',
+  csv_import: 'CSV Import',
+  linkedin_job_fetcher: 'LinkedIn Job Fetcher',
+  api_import: 'API Import',
+  oorwin: 'Oorwin',
+  other_workflow: 'Other Workflow',
+}
+
+// DB check constraint values for hiring_signal
+export const HIRING_SIGNAL_OPTIONS = [
+  'active_contract_hiring',
+  'active_fulltime_hiring',
+  'active_hiring',
+  'weak_hiring',
+  'no_signal',
+  'unknown',
+] as const
+export const HIRING_SIGNAL_LABELS: Record<string, string> = {
+  active_contract_hiring: 'Active Contract Hiring',
+  active_fulltime_hiring: 'Active Full-Time Hiring',
+  active_hiring: 'Active Hiring',
+  weak_hiring: 'Weak Hiring',
+  no_signal: 'No Signal',
+  unknown: 'Unknown',
+  // legacy values from before constraint enforcement
+  Yes: 'Yes (legacy)',
+  No: 'No (legacy)',
+}
+
+/** Returns true if a hiring_signal value indicates active hiring intent. */
+export function isHiringActive(val: string | null | undefined): boolean {
+  if (!val) return false
+  return ['active_contract_hiring', 'active_fulltime_hiring', 'active_hiring', 'weak_hiring', 'Yes'].includes(val)
+}
+
+/** Maps legacy 'Yes'/'No' values to new constraint-safe values on form load. */
+export function normalizeLegacyHiringSignal(val: string | null | undefined): string {
+  if (val === 'Yes') return 'active_hiring'
+  if (val === 'No') return 'no_signal'
+  return val ?? 'unknown'
+}
+
+export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
+  lead_created: 'Lead Created',
+  lead_updated: 'Lead Updated',
+  stage_changed: 'Stage Changed',
+  daily_recommended: 'Lead Recommended',
+  email_sent: 'Email Sent',
+  reply_received: 'Reply Received',
+  note_added: 'Note Added',
+  lead_imported: 'Lead Imported',
+  do_not_contact: 'Marked Do Not Contact',
+  lead_assigned: 'Lead Assigned',
+  outreach_sent: 'Outreach Sent',
+}

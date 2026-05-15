@@ -21,10 +21,16 @@ npx tsc --noEmit  # type-check without building
 6. **Use `template_id` as the primary key for email_templates — never `id`.**
 7. **Never assume a Supabase column exists based on TypeScript types alone.** Optional fields (`field?: string | null`) only suppress TS errors — Supabase returns a `400` if you select or write a column that does not exist. Verify every column against the confirmed schema before using it in a query or payload.
 8. **Build passing does not mean runtime queries are correct.** Always verify actual browser console and Supabase REST responses after schema-sensitive changes.
-9. **`leads.updated_at` does not exist** — use `last_updated` instead. **`leads.hiring_signal` is text** (values: `'Yes'`, `'No'`, or null) — not boolean.
-9. Preserve existing Supabase schema, RLS, and column names. Do not add/rename/drop columns without explaining why.
+9. **`leads.updated_at` does not exist** — use `last_updated` instead. **`leads.hiring_signal` is text with DB check constraint** — allowed values: `active_contract_hiring`, `active_fulltime_hiring`, `active_hiring`, `weak_hiring`, `no_signal`, `unknown`. Legacy data may contain `'Yes'`/`'No'` — handle gracefully with `normalizeLegacyHiringSignal()` on form load.
+10. **DB check constraints — always use allowed values:**
+    - `company_type`: `startup` · `smb` · `enterprise` · `unknown`
+    - `client_relationship`: `current_client` · `past_client` · `partner` · `prospect` · `potential_lead` · `unknown`
+    - `lead_source`: `manual` · `growjo` · `google_sheet` · `csv_import` · `linkedin_job_fetcher` · `api_import` · `oorwin` · `other_workflow`
+    - `hiring_signal`: see above. **Oorwin is a `lead_source` value, not a `company_type`.**
+10. Preserve existing Supabase schema, RLS, and column names. Do not add/rename/drop columns without explaining why.
 10. Never expose API keys, secrets, or service-role credentials in frontend code.
-11. Frontend must never call Gmail, Brevo, OpenAI, Apollo, Apify, or Oorwin directly. Use n8n webhooks.
+11. Frontend must never call Gmail, Brevo, OpenAI, Apollo, Apify, or Oorwin directly. Use n8n webhooks. Outreach is sent via `/api/outreach/send` (Next.js route) → n8n webhook (`N8N_SEND_EMAIL_WEBHOOK` server env var).
+12. **Dashboard is action-focused** (KPIs + recommended leads + follow-ups + quick actions). **Reports is analytics-focused** (stage funnel, owner breakdown, category, top scored, overdue).
 12. Use selective `select()` columns — avoid `select('*')` on large tables in list/dashboard queries. `LIST_COLUMNS` constants must only contain confirmed columns.
 13. Paginate list queries. Default page size: 50. Use Supabase `range()` with `count: 'exact'`.
 14. Log a `lead_activities` row on every stage change, lead create, and lead edit.

@@ -15,7 +15,12 @@ import {
 } from '@/components/ui/select'
 import {
   LEAD_STAGES, STAGE_LABELS,
-  COMPANY_TYPE_OPTIONS, CLIENT_RELATIONSHIP_OPTIONS, LEAD_SOURCE_OPTIONS,
+  COMPANY_TYPE_OPTIONS, COMPANY_TYPE_LABELS,
+  CLIENT_RELATIONSHIP_OPTIONS, CLIENT_RELATIONSHIP_LABELS,
+  LEAD_SOURCE_OPTIONS, LEAD_SOURCE_LABELS,
+  HIRING_SIGNAL_OPTIONS, HIRING_SIGNAL_LABELS,
+  normalizeLegacyHiringSignal,
+  isHiringActive,
   type Lead,
 } from '@/lib/types'
 
@@ -36,17 +41,17 @@ export function LeadForm({ lead, mode }: Props) {
     phone: lead?.phone ?? '',
     account: lead?.account ?? '',
     company_domain: lead?.company_domain ?? '',
-    company_type: lead?.company_type ?? '',
+    company_type: lead?.company_type ?? 'unknown',
     industry: lead?.industry ?? '',
     size: lead?.size ?? '',
-    client_relationship: lead?.client_relationship ?? '',
+    client_relationship: lead?.client_relationship ?? 'unknown',
     stage: lead?.stage ?? 'new',
     category: lead?.category ?? '',
     score: lead?.score?.toString() ?? '',
-    lead_source: lead?.lead_source ?? '',
+    lead_source: lead?.lead_source ?? 'manual',
     lead_owner_email: lead?.lead_owner_email ?? '',
     lead_owner_name: lead?.lead_owner_name ?? '',
-    hiring_signal: lead?.hiring_signal ?? '',
+    hiring_signal: normalizeLegacyHiringSignal(lead?.hiring_signal),
     hiring_signal_details: lead?.hiring_signal_details ?? '',
     next_followup_date: lead?.next_followup_date?.slice(0, 10) ?? '',
     notes: lead?.notes ?? '',
@@ -70,17 +75,17 @@ export function LeadForm({ lead, mode }: Props) {
       phone: str(form.phone),
       account: str(form.account),
       company_domain: str(form.company_domain),
-      company_type: str(form.company_type),
+      company_type: str(form.company_type) || 'unknown',
       industry: str(form.industry),
       size: str(form.size),
-      client_relationship: str(form.client_relationship),
+      client_relationship: str(form.client_relationship) || 'unknown',
       stage: form.stage || 'new',
       category: str(form.category),
       score: scoreVal,
-      lead_source: str(form.lead_source),
+      lead_source: str(form.lead_source) || 'manual',
       lead_owner_email: str(form.lead_owner_email),
       lead_owner_name: str(form.lead_owner_name),
-      hiring_signal: str(form.hiring_signal),
+      hiring_signal: str(form.hiring_signal) || 'unknown',
       hiring_signal_details: str(form.hiring_signal_details),
       next_followup_date: str(form.next_followup_date),
       notes: str(form.notes),
@@ -89,7 +94,6 @@ export function LeadForm({ lead, mode }: Props) {
 
     if (mode === 'create') {
       Object.assign(payload, {
-        stage: 'new',
         created_at: now,
         campaign_status: 'not_sent',
         bounce_status: 'none',
@@ -118,7 +122,10 @@ export function LeadForm({ lead, mode }: Props) {
     }
 
     if (error) {
-      toast.error(error.message)
+      const msg = error.message.includes('violates check constraint')
+        ? 'Invalid value selected for a field. Please choose from the allowed dropdown values.'
+        : error.message
+      toast.error(msg)
       setLoading(false)
       return
     }
@@ -203,14 +210,13 @@ export function LeadForm({ lead, mode }: Props) {
             />
           </Field>
           <Field label="Company Type">
-            <Select value={form.company_type} onValueChange={(v) => setField('company_type', v ?? '')}>
+            <Select value={form.company_type} onValueChange={(v) => setField('company_type', v ?? 'unknown')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select type…" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">None</SelectItem>
                 {COMPANY_TYPE_OPTIONS.map((o) => (
-                  <SelectItem key={o} value={o}>{o}</SelectItem>
+                  <SelectItem key={o} value={o}>{COMPANY_TYPE_LABELS[o] ?? o}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -230,14 +236,13 @@ export function LeadForm({ lead, mode }: Props) {
             />
           </Field>
           <Field label="Relationship">
-            <Select value={form.client_relationship} onValueChange={(v) => setField('client_relationship', v ?? '')}>
+            <Select value={form.client_relationship} onValueChange={(v) => setField('client_relationship', v ?? 'unknown')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select…" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">None</SelectItem>
                 {CLIENT_RELATIONSHIP_OPTIONS.map((o) => (
-                  <SelectItem key={o} value={o}>{o}</SelectItem>
+                  <SelectItem key={o} value={o}>{CLIENT_RELATIONSHIP_LABELS[o] ?? o}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -284,14 +289,13 @@ export function LeadForm({ lead, mode }: Props) {
           </Field>
 
           <Field label="Lead Source">
-            <Select value={form.lead_source} onValueChange={(v) => setField('lead_source', v ?? '')}>
+            <Select value={form.lead_source} onValueChange={(v) => setField('lead_source', v ?? 'manual')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select source…" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">None</SelectItem>
                 {LEAD_SOURCE_OPTIONS.map((o) => (
-                  <SelectItem key={o} value={o}>{o}</SelectItem>
+                  <SelectItem key={o} value={o}>{LEAD_SOURCE_LABELS[o] ?? o}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -324,19 +328,19 @@ export function LeadForm({ lead, mode }: Props) {
           </Field>
 
           <Field label="Hiring Signal">
-            <Select value={form.hiring_signal} onValueChange={(v) => setField('hiring_signal', v ?? '')}>
+            <Select value={form.hiring_signal} onValueChange={(v) => setField('hiring_signal', v ?? 'unknown')}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select…" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Unknown</SelectItem>
-                <SelectItem value="Yes">Yes</SelectItem>
-                <SelectItem value="No">No</SelectItem>
+                {HIRING_SIGNAL_OPTIONS.map((o) => (
+                  <SelectItem key={o} value={o}>{HIRING_SIGNAL_LABELS[o] ?? o}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </Field>
 
-          {form.hiring_signal === 'Yes' && (
+          {isHiringActive(form.hiring_signal) && (
             <div className="sm:col-span-2">
               <Field label="Hiring Signal Details">
                 <Input

@@ -19,8 +19,14 @@ const PAGE_TITLES: Record<string, string> = {
   '/dashboard/sales': 'Dashboard',
   '/dashboard/leads': 'Leads',
   '/dashboard/leads/new': 'Add Lead',
+  '/dashboard/leads/import': 'Import CSV',
   '/dashboard/templates': 'Email Templates',
   '/dashboard/reports': 'Reports',
+  '/dashboard/activity': 'Sales Activity',
+  '/dashboard/recommended': 'Recommended Leads',
+  '/dashboard/follow-ups': 'Follow-ups',
+  '/dashboard/admin/users': 'User Management',
+  '/dashboard/admin/assign-leads': 'Lead Assignment',
 }
 
 export function Header() {

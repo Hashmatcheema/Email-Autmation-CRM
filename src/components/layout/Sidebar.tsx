@@ -1,21 +1,73 @@
 'use client'
 
+import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Users, Mail, BarChart2 } from 'lucide-react'
+import {
+  LayoutDashboard, Users, Mail, BarChart2, Star, Clock,
+  Activity, UserCog, UserCheck,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/components/providers/AuthProvider'
 
-const nav = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { href: '/dashboard/leads', label: 'Leads', icon: Users },
-  { href: '/dashboard/templates', label: 'Email Templates', icon: Mail },
-  { href: '/dashboard/reports', label: 'Reports', icon: BarChart2 },
-]
+const DASHBOARD_PATHS = ['/dashboard', '/dashboard/admin', '/dashboard/sales']
+
+interface NavItem {
+  href: string
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  dashboardRoot?: boolean
+}
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { profile } = useAuth()
+  const { profile, isAdmin } = useAuth()
+
+  const dashboardHref = profile?.role === 'sales' ? '/dashboard/sales' : '/dashboard/admin'
+
+  const mainNav: NavItem[] = [
+    { href: dashboardHref, label: isAdmin ? 'Dashboard' : 'My Dashboard', icon: LayoutDashboard, dashboardRoot: true },
+    { href: '/dashboard/leads', label: isAdmin ? 'All Leads' : 'My Leads', icon: Users },
+    { href: '/dashboard/recommended', label: isAdmin ? 'Recommended Leads' : "Today's Recommended", icon: Star },
+    { href: '/dashboard/follow-ups', label: 'Follow-ups', icon: Clock },
+    ...(isAdmin ? [{ href: '/dashboard/activity', label: 'Sales Activity', icon: Activity }] : []),
+  ]
+
+  const toolsNav: NavItem[] = [
+    { href: '/dashboard/templates', label: 'Email Templates', icon: Mail },
+    { href: '/dashboard/reports', label: 'Reports', icon: BarChart2 },
+  ]
+
+  const adminNav: NavItem[] = isAdmin ? [
+    { href: '/dashboard/admin/users', label: 'User Management', icon: UserCog },
+    { href: '/dashboard/admin/assign-leads', label: 'Lead Assignment', icon: UserCheck },
+  ] : []
+
+  function isActive(item: NavItem) {
+    if (item.dashboardRoot) return DASHBOARD_PATHS.includes(pathname)
+    return pathname === item.href || pathname.startsWith(item.href + '/')
+  }
+
+  function renderLink(item: NavItem) {
+    const active = isActive(item)
+    const Icon = item.icon
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onClick={(e) => { if (active) e.preventDefault() }}
+        className={cn(
+          'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+          active
+            ? 'bg-blue-600 text-white shadow-sm'
+            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+        )}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        {item.label}
+      </Link>
+    )
+  }
 
   return (
     <aside className="flex w-64 shrink-0 flex-col bg-slate-900">
@@ -29,25 +81,22 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-0.5 p-3">
-        {nav.map(({ href, label, icon: Icon, exact }) => {
-          const active = exact ? pathname === href : pathname.startsWith(href)
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                active
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {label}
-            </Link>
-          )
-        })}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
+        {mainNav.map(renderLink)}
+
+        <div className="my-2 border-t border-slate-800" />
+
+        {toolsNav.map(renderLink)}
+
+        {adminNav.length > 0 && (
+          <>
+            <div className="my-2 border-t border-slate-800" />
+            <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+              Admin
+            </p>
+            {adminNav.map(renderLink)}
+          </>
+        )}
       </nav>
 
       <div className="border-t border-slate-800 p-4">

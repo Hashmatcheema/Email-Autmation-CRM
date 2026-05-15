@@ -10,6 +10,8 @@ interface AuthContextValue {
   user: User | null
   profile: UserProfile | null
   loading: boolean
+  isAdmin: boolean
+  isSales: boolean
   signOut: () => Promise<void>
 }
 
@@ -18,6 +20,8 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   profile: null,
   loading: true,
+  isAdmin: false,
+  isSales: false,
   signOut: async () => {},
 })
 
@@ -69,8 +73,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut()
   }
 
+  const isAdmin = profile?.role === 'admin'
+  const isSales = profile?.role === 'sales'
+
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading, signOut }}>
+    <AuthContext.Provider value={{ session, user, profile, loading, isAdmin, isSales, signOut }}>
       {children}
     </AuthContext.Provider>
   )

@@ -31,6 +31,19 @@ const VARIABLES: { label: string; value: string }[] = [
   { label: 'Hiring Signal', value: '{{hiring_signal}}' },
 ]
 
+const PREVIEW_SAMPLE: Record<string, string> = {
+  '{{first_name}}': 'John',
+  '{{company_name}}': 'ABC Technologies',
+  '{{contact_name}}': 'John Doe',
+  '{{sender_name}}': 'Hashmat',
+  '{{industry}}': 'Technology',
+  '{{hiring_signal}}': 'Active Hiring',
+}
+
+function previewText(text: string): string {
+  return Object.entries(PREVIEW_SAMPLE).reduce((s, [k, v]) => s.replaceAll(k, v), text)
+}
+
 const EMPTY_FORM = { template_name: '', template_type: '', subject: '', body: '', is_active: true }
 
 export default function TemplatesPage() {
@@ -81,15 +94,21 @@ export default function TemplatesPage() {
     setRefreshKey((k) => k + 1)
   }
 
-  function openEdit(t: EmailTemplate) {
+  async function openEdit(t: EmailTemplate) {
+    const { data } = await supabase
+      .from('email_templates')
+      .select('template_id,template_name,template_type,subject,body,is_active')
+      .eq('template_id', t.template_id)
+      .single()
+    const full = (data as EmailTemplate | null) ?? t
     setEditForm({
-      template_name: t.template_name,
-      template_type: t.template_type ?? '',
-      subject: t.subject,
-      body: t.body ?? '',
-      is_active: t.is_active ?? true,
+      template_name: full.template_name,
+      template_type: full.template_type ?? '',
+      subject: full.subject,
+      body: full.body ?? '',
+      is_active: full.is_active ?? true,
     })
-    setSelectedTemplate(t)
+    setSelectedTemplate(full)
   }
 
   async function handleEdit(e: React.FormEvent) {
@@ -97,23 +116,13 @@ export default function TemplatesPage() {
     if (!selectedTemplate) return
     setEditSaving(true)
 
-    let body = editForm.body
-    if (!body && selectedTemplate.template_id) {
-      const { data } = await supabase
-        .from('email_templates')
-        .select('body')
-        .eq('template_id', selectedTemplate.template_id)
-        .single()
-      body = (data as { body: string } | null)?.body ?? ''
-    }
-
     const { error: err } = await supabase
       .from('email_templates')
       .update({
         template_name: editForm.template_name,
         template_type: editForm.template_type || null,
         subject: editForm.subject,
-        body,
+        body: editForm.body,
         is_active: editForm.is_active,
       })
       .eq('template_id', selectedTemplate.template_id)
@@ -144,7 +153,7 @@ export default function TemplatesPage() {
             <Plus className="h-4 w-4" />
             New Template
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create Template</DialogTitle>
             </DialogHeader>
@@ -164,7 +173,7 @@ export default function TemplatesPage() {
         open={selectedTemplate !== null}
         onOpenChange={(open) => { if (!open) setSelectedTemplate(null) }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Template</DialogTitle>
           </DialogHeader>
@@ -334,29 +343,34 @@ function TemplateForm({
       </div>
 
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs font-medium text-slate-700">Body</Label>
-        </div>
-        <div className="flex flex-wrap gap-1 mb-2">
+        <Label className="text-xs font-medium text-slate-700">Body</Label>
+        <div className="flex flex-wrap gap-1 mb-1">
           {VARIABLES.map(({ label, value }) => (
             <button
               key={value}
               type="button"
               onClick={() => insertVariable(value)}
-              className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-mono text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors"
+              className="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100 transition-colors"
             >
               {label}
             </button>
           ))}
         </div>
+        <p className="text-[11px] text-slate-400 mb-1">Variables are inserted as placeholders and replaced automatically when sending.</p>
         <Textarea
           ref={textareaRef}
           rows={6}
           value={form.body}
           onChange={(e) => setField('body', e.target.value)}
-          placeholder="Email body… Use the chips above to insert variables."
+          placeholder="Email body… Click a variable chip above to insert it."
           className="resize-none font-mono text-xs"
         />
+        {form.body && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Preview (sample data)</p>
+            <p className="whitespace-pre-wrap text-xs text-slate-700 max-h-32 overflow-y-auto">{previewText(form.body)}</p>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

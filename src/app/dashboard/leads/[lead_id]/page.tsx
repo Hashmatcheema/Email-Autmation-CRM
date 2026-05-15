@@ -5,12 +5,12 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Pencil, CheckCircle2, XCircle, Clock, Mail, Building2,
-  Phone, Globe, Send,
+  Phone, Globe, Send, MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/components/providers/AuthProvider'
 import { fetchLeadById, updateLeadStage } from '@/lib/services/leads'
-import { fetchActivities } from '@/lib/services/activities'
+import { fetchActivities, logActivity } from '@/lib/services/activities'
 import { fetchActiveTemplates } from '@/lib/services/templates'
 import { buttonVariants } from '@/components/ui/button'
 import { Button } from '@/components/ui/button'
@@ -25,7 +25,9 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import {
-  STAGE_LABELS, STAGE_COLORS, TEMPLATE_TYPE_LABELS, type Lead, type LeadActivity, type EmailTemplate,
+  STAGE_LABELS, STAGE_COLORS, TEMPLATE_TYPE_LABELS, HIRING_SIGNAL_LABELS,
+  ACTIVITY_TYPE_LABELS,
+  isHiringActive, type Lead, type LeadActivity, type EmailTemplate,
 } from '@/lib/types'
 
 const QUICK_STAGES = [
@@ -36,6 +38,29 @@ const QUICK_STAGES = [
   'not_interested',
   'do_not_contact',
 ] as const
+
+const STAGE_GUIDANCE: Record<string, { title: string; description: string; colorClass: string }> = {
+  new: { title: 'New Lead', description: 'This lead has not been contacted yet. Review their info and prepare an outreach email.', colorClass: 'bg-slate-50 border-slate-200 text-slate-700' },
+  recommended: { title: 'Recommended for Outreach', description: 'This lead is recommended for outreach today. Send an initial email or make a call.', colorClass: 'bg-blue-50 border-blue-200 text-blue-700' },
+  contacted: { title: 'Outreach Sent', description: 'Initial outreach has been sent. Wait for a reply or set a follow-up date.', colorClass: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
+  follow_up: { title: 'Follow-up Due', description: 'A follow-up is scheduled for this lead. Review the last interaction and reach out.', colorClass: 'bg-amber-50 border-amber-200 text-amber-700' },
+  replied: { title: 'Lead Replied', description: "This lead replied to your outreach. Review their response and take the next step.", colorClass: 'bg-cyan-50 border-cyan-200 text-cyan-700' },
+  interested: { title: 'Lead Is Interested', description: 'This lead has shown interest. Qualify the opportunity and move toward a deal.', colorClass: 'bg-green-50 border-green-200 text-green-700' },
+  not_interested: { title: 'Not Interested', description: 'This lead indicated they are not interested at this time. No further outreach needed.', colorClass: 'bg-rose-50 border-rose-200 text-rose-700' },
+  do_not_contact: { title: 'Do Not Contact', description: 'This lead is suppressed. Do not send any outreach. Contact admin if this is in error.', colorClass: 'bg-red-50 border-red-200 text-red-700' },
+  closed_won: { title: 'Closed Won', description: 'This deal has been won. Log any handoff notes or next steps.', colorClass: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+  closed_lost: { title: 'Closed Lost', description: 'This deal has been closed and lost. No further action required.', colorClass: 'bg-gray-50 border-gray-200 text-gray-600' },
+}
+
+function getOutreachBlockReason(lead: Lead): string | null {
+  if (!lead.email) return 'This lead has no email address on file.'
+  if (lead.stage === 'do_not_contact') return 'This lead is marked Do Not Contact.'
+  if (lead.unsubscribed) return 'This lead has unsubscribed from emails.'
+  if (lead.bounce_status && lead.bounce_status.toLowerCase().includes('hard')) return 'This lead has a hard email bounce on record.'
+  if (lead.complaint_status && !['none', ''].includes(lead.complaint_status.toLowerCase())) return 'This lead has a spam complaint on file.'
+  if (lead.email_opt_in_status === false) return 'This lead has not opted in to email communications.'
+  return null
+}
 
 function interpolate(text: string, lead: Lead, senderName: string) {
   const firstName = lead.contact_name?.split(' ')[0] ?? ''
@@ -68,6 +93,11 @@ export default function LeadDetailPage() {
   const [outreachOpen, setOutreachOpen] = useState(false)
   const [templates, setTemplates] = useState<EmailTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [sendLoading, setSendLoading] = useState(false)
+
+  // Note input state
+  const [noteText, setNoteText] = useState('')
+  const [noteLoading, setNoteLoading] = useState(false)
 
   const selectedTemplate = templates.find((t) => t.template_id === selectedTemplateId) ?? null
 
@@ -110,6 +140,60 @@ export default function LeadDetailPage() {
     setOutreachOpen(true)
   }
 
+  async function handleSendOutreach() {
+    if (!selectedTemplate || !lead || sendLoading) return
+    setSendLoading(true)
+    const senderName = profile?.name ?? profile?.email ?? ''
+    const subject = interpolate(selectedTemplate.subject, lead, senderName)
+    const body = interpolate(selectedTemplate.body, lead, senderName)
+
+    const res = await fetch('/api/outreach/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lead_id: lead.lead_id,
+        template_id: selectedTemplate.template_id,
+        to_email: lead.email,
+        subject,
+        body,
+        sender_email: profile?.email,
+      }),
+    })
+
+    const json = (await res.json()) as { error?: string }
+
+    if (!res.ok) {
+      toast.error(json.error ?? 'Failed to send outreach')
+      setSendLoading(false)
+      return
+    }
+
+    await updateLeadStage(lead_id, 'contacted', profile?.email ?? 'unknown')
+    toast.success('Outreach sent! Stage updated to Contacted.')
+    setOutreachOpen(false)
+    const [{ lead: l }, { activities: acts }] = await Promise.all([
+      fetchLeadById(lead_id),
+      fetchActivities(lead_id),
+    ])
+    if (l) { setLead(l); setActivities(acts) }
+    setSendLoading(false)
+  }
+
+  async function handleAddNote() {
+    if (!noteText.trim() || !profile || noteLoading) return
+    setNoteLoading(true)
+    const { error } = await logActivity(lead_id, 'note_added', noteText.trim(), profile.email)
+    if (error) {
+      toast.error('Failed to add note.')
+    } else {
+      toast.success('Note added to activity timeline.')
+      setNoteText('')
+      const { activities: acts } = await fetchActivities(lead_id)
+      setActivities(acts)
+    }
+    setNoteLoading(false)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -119,6 +203,9 @@ export default function LeadDetailPage() {
   }
 
   if (!lead) return null
+
+  const outreachBlockReason = getOutreachBlockReason(lead)
+  const guidance = STAGE_GUIDANCE[lead.stage ?? 'new'] ?? STAGE_GUIDANCE.new
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -137,8 +224,9 @@ export default function LeadDetailPage() {
         <Button
           variant="outline"
           size="sm"
-          className="gap-1.5 text-slate-700"
+          className={cn('gap-1.5', outreachBlockReason ? 'text-slate-400' : 'text-slate-700')}
           onClick={openOutreach}
+          title={outreachBlockReason ?? 'Send outreach email'}
         >
           <Send className="h-3.5 w-3.5" />
           Send Outreach
@@ -150,6 +238,12 @@ export default function LeadDetailPage() {
           <Pencil className="h-3.5 w-3.5" />
           Edit
         </Link>
+      </div>
+
+      {/* Action guidance card */}
+      <div className={cn('rounded-lg border px-4 py-3', guidance.colorClass)}>
+        <p className="text-xs font-semibold">{guidance.title}</p>
+        <p className="mt-0.5 text-xs opacity-80">{guidance.description}</p>
       </div>
 
       {/* Quick stage actions */}
@@ -204,9 +298,10 @@ export default function LeadDetailPage() {
                         {lead.category}
                       </span>
                     )}
-                    {lead.hiring_signal && lead.hiring_signal !== 'No' && (
+                    {isHiringActive(lead.hiring_signal) && (
                       <span className="flex items-center gap-1 rounded-md bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
-                        <CheckCircle2 className="h-3 w-3" /> Hiring Signal
+                        <CheckCircle2 className="h-3 w-3" />
+                        {HIRING_SIGNAL_LABELS[lead.hiring_signal!] ?? 'Hiring Signal'}
                       </span>
                     )}
                     {lead.is_daily_recommended && (
@@ -286,18 +381,18 @@ export default function LeadDetailPage() {
               {lead.lead_owner_name && <Detail label="Owner Name" value={lead.lead_owner_name} />}
               {lead.lead_source && <Detail label="Source" value={lead.lead_source} />}
               <Detail label="Hiring Signal">
-                {lead.hiring_signal === 'Yes' ? (
+                {isHiringActive(lead.hiring_signal) ? (
                   <span className="flex items-center gap-1 text-sm text-green-700">
-                    <CheckCircle2 className="h-4 w-4" /> Yes
+                    <CheckCircle2 className="h-4 w-4" />
+                    {HIRING_SIGNAL_LABELS[lead.hiring_signal!] ?? lead.hiring_signal}
                   </span>
-                ) : lead.hiring_signal === 'No' ? (
-                  <span className="flex items-center gap-1 text-sm text-slate-500">
-                    <XCircle className="h-4 w-4" /> No
-                  </span>
-                ) : lead.hiring_signal ? (
-                  <span className="text-sm text-slate-700">{lead.hiring_signal}</span>
+                ) : lead.hiring_signal && !['no_signal', 'unknown', 'No'].includes(lead.hiring_signal) ? (
+                  <span className="text-sm text-slate-700">{HIRING_SIGNAL_LABELS[lead.hiring_signal] ?? lead.hiring_signal}</span>
                 ) : (
-                  <span className="text-sm text-slate-400">—</span>
+                  <span className="flex items-center gap-1 text-sm text-slate-500">
+                    <XCircle className="h-4 w-4" />
+                    {lead.hiring_signal ? (HIRING_SIGNAL_LABELS[lead.hiring_signal] ?? lead.hiring_signal) : '—'}
+                  </span>
                 )}
               </Detail>
               {lead.hiring_signal_details && (
@@ -370,7 +465,38 @@ export default function LeadDetailPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="activity" className="mt-4">
+        <TabsContent value="activity" className="mt-4 space-y-4">
+          {/* Add note */}
+          <Card className="border-slate-200 shadow-none">
+            <CardHeader className="border-b border-slate-100 px-6 py-4">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Add Note
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="flex gap-2">
+                <textarea
+                  className="flex-1 resize-none rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:outline-none"
+                  rows={2}
+                  placeholder="Add a note about this lead…"
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) void handleAddNote() }}
+                />
+                <Button
+                  size="sm"
+                  onClick={() => void handleAddNote()}
+                  disabled={!noteText.trim() || noteLoading}
+                  className="self-end bg-blue-600 hover:bg-blue-700"
+                >
+                  <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                  {noteLoading ? 'Saving…' : 'Add Note'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Activity timeline */}
           <Card className="border-slate-200 shadow-none">
             <CardHeader className="border-b border-slate-100 px-6 py-4">
               <CardTitle className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -392,7 +518,7 @@ export default function LeadDetailPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-900">
-                          {act.activity_type.replace(/_/g, ' ')}
+                          {ACTIVITY_TYPE_LABELS[act.activity_type] ?? act.activity_type.replace(/_/g, ' ')}
                         </p>
                         {act.notes && (
                           <p className="mt-0.5 text-xs text-slate-500">{act.notes}</p>
@@ -418,6 +544,12 @@ export default function LeadDetailPage() {
             <DialogTitle>Send Outreach</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-2">
+            {outreachBlockReason && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                <p className="text-sm font-semibold text-red-700">Cannot send outreach</p>
+                <p className="mt-0.5 text-xs text-red-600">{outreachBlockReason}</p>
+              </div>
+            )}
             {templates.length === 0 ? (
               <p className="text-sm text-slate-500">No active email templates found. Create one in Email Templates.</p>
             ) : (
@@ -458,22 +590,17 @@ export default function LeadDetailPage() {
               </>
             )}
 
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="text-xs text-amber-800 font-medium">n8n outreach webhook is not configured yet.</p>
-              <p className="mt-0.5 text-xs text-amber-700">This action is ready for integration. Once a webhook is connected, outreach will be sent automatically.</p>
-            </div>
-
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setOutreachOpen(false)}>
+              <Button variant="outline" onClick={() => setOutreachOpen(false)} disabled={sendLoading}>
                 Close
               </Button>
               <Button
-                disabled
+                onClick={handleSendOutreach}
+                disabled={!selectedTemplate || sendLoading || !!outreachBlockReason}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-                title="Webhook not configured"
               >
                 <Send className="mr-1.5 h-3.5 w-3.5" />
-                Send (not configured)
+                {sendLoading ? 'Sending…' : 'Send via Automation'}
               </Button>
             </div>
           </div>

@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useAuth } from '@/components/providers/AuthProvider'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { LEAD_STAGES, STAGE_LABELS, STAGE_COLORS, type Lead } from '@/lib/types'
+import { LEAD_STAGES, STAGE_LABELS, STAGE_COLORS, isHiringActive, type Lead } from '@/lib/types'
+import Link from 'next/link'
 
-const REPORT_COLUMNS = 'lead_id,stage,score,hiring_signal,lead_owner_email,next_followup_date'
+const REPORT_COLUMNS = 'lead_id,contact_name,account,stage,category,score,hiring_signal,lead_owner_email,next_followup_date'
 
 export default function ReportsPage() {
   const supabase = getSupabaseBrowserClient()
@@ -44,9 +45,27 @@ export default function ReportsPage() {
     ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
     : null
 
-  const hiringCount = leads.filter((l) => l.hiring_signal === 'Yes').length
+  const hiringCount = leads.filter((l) => isHiringActive(l.hiring_signal)).length
   const hotLeads = leads.filter((l) => l.score !== null && (l.score as number) >= 70).length
   const doNotContact = leads.filter((l) => l.stage === 'do_not_contact').length
+
+  const categoryMap: Record<string, number> = {}
+  leads.forEach((l) => {
+    const k = l.category ?? 'Uncategorized'
+    categoryMap[k] = (categoryMap[k] ?? 0) + 1
+  })
+  const byCategory = Object.entries(categoryMap).sort((a, b) => b[1] - a[1])
+
+  const topScored = [...leads]
+    .filter((l) => l.score !== null)
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 10)
+
+  const today = new Date().toISOString().slice(0, 10)
+  const overdueFollowups = leads
+    .filter((l) => l.next_followup_date && l.next_followup_date < today)
+    .sort((a, b) => (a.next_followup_date ?? '').localeCompare(b.next_followup_date ?? ''))
+    .slice(0, 10)
 
 
   return (
@@ -140,6 +159,115 @@ export default function ReportsPage() {
           </Card>
         )}
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* By Category */}
+        {byCategory.length > 0 && (
+          <Card className="border-slate-200 shadow-none">
+            <CardHeader className="border-b border-slate-100 px-6 py-4">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Leads by Category
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {loading ? (
+                <div className="flex justify-center py-10">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-slate-700" />
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {byCategory.map(([cat, count]) => {
+                    const pct = total ? Math.round((count / total) * 100) : 0
+                    return (
+                      <li key={cat} className="flex items-center gap-3 px-6 py-3">
+                        <span className="flex-1 text-sm text-slate-700">{cat}</span>
+                        <div className="flex items-center gap-3">
+                          <div className="hidden sm:block w-24 h-1.5 rounded-full bg-slate-100">
+                            <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="w-6 text-right text-sm font-semibold text-slate-900">{count}</span>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Overdue Follow-ups */}
+        {overdueFollowups.length > 0 && (
+          <Card className="border-slate-200 shadow-none">
+            <CardHeader className="border-b border-slate-100 px-6 py-4">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Overdue Follow-ups
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ul className="divide-y divide-slate-100">
+                {overdueFollowups.map((l) => (
+                  <li key={l.lead_id} className="flex items-center justify-between gap-3 px-6 py-3">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/dashboard/leads/${l.lead_id}`}
+                        className="truncate text-sm font-medium text-slate-900 hover:text-blue-600"
+                      >
+                        {l.contact_name ?? '—'}
+                      </Link>
+                      <p className="truncate text-xs text-slate-500">{l.account ?? '—'}</p>
+                    </div>
+                    <span className="shrink-0 text-xs font-medium text-red-600">
+                      {new Date(l.next_followup_date!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Top Scored Leads */}
+      {topScored.length > 0 && (
+        <Card className="border-slate-200 shadow-none">
+          <CardHeader className="border-b border-slate-100 px-6 py-4">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Top Scored Leads
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ul className="divide-y divide-slate-100">
+              {topScored.map((l, i) => (
+                <li key={l.lead_id} className="flex items-center gap-4 px-6 py-3">
+                  <span className="w-5 text-xs font-bold text-slate-400">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <Link
+                      href={`/dashboard/leads/${l.lead_id}`}
+                      className="truncate text-sm font-medium text-slate-900 hover:text-blue-600"
+                    >
+                      {l.contact_name ?? '—'}
+                    </Link>
+                    <p className="truncate text-xs text-slate-500">{l.account ?? '—'}</p>
+                  </div>
+                  <div className="shrink-0 flex items-center gap-3">
+                    <span
+                      className={`text-sm font-bold ${
+                        (l.score ?? 0) >= 70 ? 'text-green-600' : (l.score ?? 0) >= 40 ? 'text-amber-600' : 'text-red-500'
+                      }`}
+                    >
+                      {l.score}
+                    </span>
+                    <span className={`text-[11px] border rounded px-1.5 py-0.5 font-medium ${STAGE_COLORS[l.stage ?? 'new'] ?? STAGE_COLORS.new}`}>
+                      {STAGE_LABELS[l.stage ?? 'new'] ?? l.stage}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
