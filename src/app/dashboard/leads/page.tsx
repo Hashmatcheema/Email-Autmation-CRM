@@ -3,10 +3,10 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Upload, Search, ChevronLeft, ChevronRight, Filter, ArrowUpDown } from 'lucide-react'
+import { Plus, Upload, Search, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/components/providers/AuthProvider'
-import { LeadsTable } from '@/components/leads/LeadsTable'
+import { LeadsTable, type ColFilters } from '@/components/leads/LeadsTable'
 import { buttonVariants } from '@/components/ui/button'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,23 +14,67 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { fetchLeads } from '@/lib/services/leads'
-import { LEAD_STAGES, STAGE_LABELS, type Lead } from '@/lib/types'
+import {
+  STAGE_LABELS, LEAD_SOURCE_LABELS,
+  CLIENT_RELATIONSHIP_LABELS, COMPANY_TYPE_LABELS,
+  type Lead,
+} from '@/lib/types'
 
 const DEFAULT_PAGE_SIZE = 50
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
 
-const SORT_OPTIONS = [
-  { value: 'created_at:desc', label: 'Newest First' },
-  { value: 'created_at:asc', label: 'Oldest First' },
-  { value: 'score:desc', label: 'Score High → Low' },
-  { value: 'score:asc', label: 'Score Low → High' },
-  { value: 'next_followup_date:asc', label: 'Follow-up Soonest' },
-  { value: 'last_updated:desc', label: 'Last Updated' },
-  { value: 'contact_name:asc', label: 'Name A–Z' },
-  { value: 'account:asc', label: 'Account A–Z' },
-]
+const DEFAULT_COL_FILTERS: ColFilters = {
+  stage: '',
+  category: '',
+  score: '',
+  hiring: '',
+  source: '',
+  relationship: '',
+  companyType: '',
+  followup: '',
+  owner: '',
+}
 
-const CATEGORY_OPTIONS = ['Hot', 'Warm', 'Cold', 'Not Relevant']
+// Human-readable label for each filter value
+const SCORE_LABELS: Record<string, string> = {
+  '80plus': 'Score 80+',
+  '90plus': 'Score 90+',
+  '100': 'Score 100',
+  '1to79': 'Score 1–79',
+  '0': 'Score 0',
+}
+
+const HIRING_LABELS: Record<string, string> = {
+  active_contract_hiring: 'Contract Hiring',
+  active_fulltime_hiring: 'Full-Time Hiring',
+  active_hiring: 'Active Hiring',
+  weak_hiring: 'Weak Hiring',
+  no_signal: 'No Hiring Signal',
+  unknown: 'Hiring Unknown',
+}
+
+const FOLLOWUP_LABELS: Record<string, string> = {
+  today: 'Follow-up: Today',
+  overdue: 'Follow-up: Overdue',
+  upcoming: 'Follow-up: Upcoming',
+  none: 'No Follow-up Date',
+}
+
+function getChipLabel(key: keyof ColFilters, value: string): string {
+  if (!value) return ''
+  switch (key) {
+    case 'stage': return `Stage: ${STAGE_LABELS[value] ?? value}`
+    case 'category': return `Cat: ${value}`
+    case 'score': return SCORE_LABELS[value] ?? value
+    case 'hiring': return HIRING_LABELS[value] ?? value
+    case 'source': return `Source: ${LEAD_SOURCE_LABELS[value] ?? value}`
+    case 'relationship': return `Rel: ${CLIENT_RELATIONSHIP_LABELS[value] ?? value}`
+    case 'companyType': return `Type: ${COMPANY_TYPE_LABELS[value] ?? value}`
+    case 'followup': return FOLLOWUP_LABELS[value] ?? value
+    case 'owner': return `Owner: ${value}`
+    default: return value
+  }
+}
 
 export default function LeadsPage() {
   return (
@@ -53,33 +97,43 @@ function LeadsPageContent() {
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [stageFilter, setStageFilter] = useState(() => searchParams.get('stage') ?? '')
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [ownerFilter, setOwnerFilter] = useState('')
-  const [sort, setSort] = useState('created_at:desc')
+  const [colFilters, setColFilters] = useState<ColFilters>(() => ({
+    ...DEFAULT_COL_FILTERS,
+    stage: searchParams.get('stage') ?? '',
+    followup: searchParams.get('followup') ?? '',
+  }))
 
-  // Debounce search
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)
   }, [search])
+
+  function setColFilter(key: keyof ColFilters, value: string) {
+    setColFilters(prev => ({ ...prev, [key]: value }))
+    setPage(0)
+  }
 
   useEffect(() => {
     if (!profile) return
     async function load() {
       setLoading(true)
       setError(null)
-      const [sortField, sortDir] = sort.split(':')
       const { leads: data, count, error: err } = await fetchLeads({
         page,
         pageSize,
         search: debouncedSearch,
-        stage: stageFilter || undefined,
-        category: categoryFilter || undefined,
-        ownerEmail: ownerFilter || undefined,
+        stage: colFilters.stage || undefined,
+        category: colFilters.category || undefined,
+        ownerEmail: colFilters.owner || undefined,
+        hiringSignal: colFilters.hiring || undefined,
+        companyType: colFilters.companyType || undefined,
+        clientRelationship: colFilters.relationship || undefined,
+        leadSource: colFilters.source || undefined,
+        scoreFilter: colFilters.score || undefined,
+        followupFilter: colFilters.followup || undefined,
         roleFilter: { role: profile!.role, email: profile!.email },
-        sortBy: sortField,
-        sortAscending: sortDir === 'asc',
+        sortBy: 'created_at',
+        sortAscending: false,
       })
       if (err) { setError(err.message); setLoading(false); return }
       setLeads(data)
@@ -87,11 +141,23 @@ function LeadsPageContent() {
       setLoading(false)
     }
     void load()
-  }, [profile, page, pageSize, debouncedSearch, stageFilter, categoryFilter, ownerFilter, sort, refreshKey])
+  }, [profile, page, pageSize, debouncedSearch, colFilters, refreshKey])
 
   const totalPages = Math.ceil(total / pageSize)
   const isAdmin = profile?.role === 'admin'
-  const hasFilters = stageFilter || categoryFilter || ownerFilter || debouncedSearch || sort !== 'created_at:desc'
+
+  const hasFilters = !!debouncedSearch || Object.values(colFilters).some(v => v !== '')
+
+  // Active filter chips (only column filters, not search)
+  const activeChips = (Object.entries(colFilters) as [keyof ColFilters, string][])
+    .filter(([, v]) => v !== '')
+    .map(([key, value]) => ({ key, label: getChipLabel(key, value) }))
+
+  function clearAllFilters() {
+    setSearch('')
+    setColFilters(DEFAULT_COL_FILTERS)
+    setPage(0)
+  }
 
   return (
     <div className="space-y-3">
@@ -123,9 +189,9 @@ function LeadsPageContent() {
         </div>
       </div>
 
-      {/* Filter bar */}
+      {/* Filter bar — single search input */}
       <div className="flex flex-wrap gap-2">
-        <div className="relative min-w-[180px] flex-1 max-w-xs">
+        <div className="relative min-w-[220px] flex-1 max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <Input
             placeholder="Search name, company, email…"
@@ -135,72 +201,39 @@ function LeadsPageContent() {
           />
         </div>
 
-        <Select value={stageFilter} onValueChange={(v) => { setStageFilter(v ?? ''); setPage(0) }}>
-          <SelectTrigger className="w-[150px] text-sm">
-            <Filter className="mr-1 h-3.5 w-3.5 text-slate-400" />
-            <SelectValue placeholder="All Stages" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All Stages</SelectItem>
-            {LEAD_STAGES.map((s) => (
-              <SelectItem key={s} value={s}>{STAGE_LABELS[s]}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v ?? ''); setPage(0) }}>
-          <SelectTrigger className="w-[130px] text-sm">
-            <SelectValue placeholder="All Categories" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">All Categories</SelectItem>
-            {CATEGORY_OPTIONS.map((c) => (
-              <SelectItem key={c} value={c}>{c}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={sort} onValueChange={(v) => { setSort(v ?? 'created_at:desc'); setPage(0) }}>
-          <SelectTrigger className="w-[170px] text-sm">
-            <ArrowUpDown className="mr-1 h-3.5 w-3.5 text-slate-400" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SORT_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {isAdmin && (
-          <div className="relative min-w-[150px]">
-            <Input
-              placeholder="Filter by owner email…"
-              value={ownerFilter}
-              onChange={(e) => { setOwnerFilter(e.target.value); setPage(0) }}
-              className="text-sm"
-            />
-          </div>
-        )}
-
         {hasFilters && (
           <Button
             variant="ghost"
             size="sm"
-            className="text-slate-500 hover:text-slate-700"
-            onClick={() => {
-              setSearch('')
-              setStageFilter('')
-              setCategoryFilter('')
-              setOwnerFilter('')
-              setSort('created_at:desc')
-              setPage(0)
-            }}
+            className="gap-1.5 text-slate-500 hover:text-slate-700"
+            onClick={clearAllFilters}
           >
-            Clear
+            <X className="h-3.5 w-3.5" />
+            Clear all
           </Button>
         )}
       </div>
+
+      {/* Active filter chips */}
+      {activeChips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {activeChips.map(({ key, label }) => (
+            <span
+              key={key}
+              className="flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700"
+            >
+              {label}
+              <button
+                type="button"
+                onClick={() => setColFilter(key, '')}
+                className="ml-0.5 rounded-full hover:bg-blue-200"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Table */}
       {loading ? (
@@ -213,7 +246,13 @@ function LeadsPageContent() {
           <p className="mt-1 text-xs text-red-500">{error}</p>
         </div>
       ) : (
-        <LeadsTable leads={leads} onRefresh={() => setRefreshKey((k) => k + 1)} />
+        <LeadsTable
+          leads={leads}
+          onRefresh={() => setRefreshKey((k) => k + 1)}
+          colFilters={colFilters}
+          onColFilterChange={setColFilter}
+          isAdmin={isAdmin}
+        />
       )}
 
       {/* Pagination */}

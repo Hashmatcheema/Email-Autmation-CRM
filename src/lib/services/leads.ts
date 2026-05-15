@@ -35,6 +35,18 @@ export interface FetchLeadsOptions {
   ownerEmail?: string
   /** true = actively hiring, false = not/unknown, undefined = no filter */
   hiringActive?: boolean
+  /** Filter by exact hiring_signal value */
+  hiringSignal?: string
+  /** Filter by exact company_type value */
+  companyType?: string
+  /** Filter by exact client_relationship value */
+  clientRelationship?: string
+  /** Filter by exact lead_source value */
+  leadSource?: string
+  /** Score filter: '80plus' | '90plus' | '100' | '1to79' | '0' */
+  scoreFilter?: string
+  /** Follow-up date filter: 'today' | 'overdue' | 'upcoming' | 'none' */
+  followupFilter?: string
   /** true = only leads where is_daily_recommended = true */
   isRecommended?: boolean
   /** true = only leads where next_followup_date <= today */
@@ -58,6 +70,8 @@ export async function fetchLeads(opts: FetchLeadsOptions = {}) {
     page = 0,
     pageSize = LEADS_PAGE_SIZE,
     search, stage, category, ownerEmail, hiringActive,
+    hiringSignal, companyType, clientRelationship, leadSource,
+    scoreFilter, followupFilter,
     isRecommended, followupDue,
     roleFilter,
     sortBy = 'created_at', sortAscending = false,
@@ -78,6 +92,24 @@ export async function fetchLeads(opts: FetchLeadsOptions = {}) {
   if (stage) query = query.eq('stage', stage)
   if (category) query = query.eq('category', category)
   if (ownerEmail) query = query.eq('lead_owner_email', ownerEmail)
+  if (hiringSignal) query = query.eq('hiring_signal', hiringSignal)
+  if (companyType) query = query.eq('company_type', companyType)
+  if (clientRelationship) query = query.eq('client_relationship', clientRelationship)
+  if (leadSource) query = query.eq('lead_source', leadSource)
+  if (scoreFilter) {
+    if (scoreFilter === '80plus') query = query.gte('score', 80)
+    else if (scoreFilter === '90plus') query = query.gte('score', 90)
+    else if (scoreFilter === '100') query = query.eq('score', 100)
+    else if (scoreFilter === '1to79') query = query.gte('score', 1).lte('score', 79)
+    else if (scoreFilter === '0') query = query.or('score.is.null,score.eq.0')
+  }
+  if (followupFilter) {
+    const today = new Date().toISOString().slice(0, 10)
+    if (followupFilter === 'today') query = query.eq('next_followup_date', today)
+    else if (followupFilter === 'overdue') query = query.lt('next_followup_date', today).not('next_followup_date', 'is', null)
+    else if (followupFilter === 'upcoming') query = query.gt('next_followup_date', today)
+    else if (followupFilter === 'none') query = query.is('next_followup_date', null)
+  }
   if (isRecommended === true) query = query.eq('is_daily_recommended', true)
   if (followupDue === true) {
     const today = new Date().toISOString().slice(0, 10)
@@ -164,6 +196,18 @@ export async function fetchLeadStats(ownerEmail?: string): Promise<LeadStatsResu
     recommendedLeads,
     followupLeads,
   }
+}
+
+export async function updateLeadNotes(leadId: string, notes: string, updatedBy: string) {
+  const supabase = getSupabaseBrowserClient()
+  const { error } = await supabase
+    .from('leads')
+    .update({ notes, last_updated: new Date().toISOString() })
+    .eq('lead_id', leadId)
+  if (!error) {
+    await logActivity(leadId, 'note_added', 'Notes updated', updatedBy)
+  }
+  return { error }
 }
 
 export async function updateLeadStage(

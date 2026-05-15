@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { MoreVertical, FileText, Mail, Phone, Pencil, Send, Clock } from 'lucide-react'
+import { MoreVertical, FileText, Mail, Phone, Pencil, Send, Clock, ChevronDown, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/components/providers/AuthProvider'
@@ -11,6 +11,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
@@ -24,12 +25,26 @@ import {
 import { StageBadge, CategoryBadge, ScoreBadge, HiringSignalBadge } from '@/components/ui/status-badges'
 import { fetchActivities } from '@/lib/services/activities'
 import { fetchActiveTemplates } from '@/lib/services/templates'
-import { updateLeadStage } from '@/lib/services/leads'
+import { updateLeadStage, updateLeadNotes } from '@/lib/services/leads'
 import {
-  STAGE_LABELS, TEMPLATE_TYPE_LABELS,
-  CLIENT_RELATIONSHIP_LABELS, COMPANY_TYPE_LABELS, LEAD_SOURCE_LABELS,
+  LEAD_STAGES, STAGE_LABELS, TEMPLATE_TYPE_LABELS,
+  CLIENT_RELATIONSHIP_LABELS, CLIENT_RELATIONSHIP_OPTIONS,
+  COMPANY_TYPE_LABELS, COMPANY_TYPE_OPTIONS,
+  LEAD_SOURCE_LABELS, LEAD_SOURCE_OPTIONS,
   type Lead, type LeadActivity, type EmailTemplate,
 } from '@/lib/types'
+
+export interface ColFilters {
+  stage: string
+  category: string
+  score: string
+  hiring: string
+  source: string
+  relationship: string
+  companyType: string
+  followup: string
+  owner: string
+}
 
 const QUICK_STAGES = [
   { value: 'contacted', label: 'Mark Contacted' },
@@ -39,6 +54,32 @@ const QUICK_STAGES = [
   { value: 'not_interested', label: 'Mark Not Interested' },
   { value: 'do_not_contact', label: 'Mark Do Not Contact' },
 ] as const
+
+const CATEGORY_FILTER_OPTIONS = ['Hot', 'Warm', 'Not Relevant', 'Do Not Contact']
+
+const SCORE_FILTER_OPTIONS = [
+  { value: '80plus', label: '80+' },
+  { value: '90plus', label: '90+' },
+  { value: '100', label: '100 only' },
+  { value: '1to79', label: '1–79' },
+  { value: '0', label: '0 / No score' },
+]
+
+const FOLLOWUP_FILTER_OPTIONS = [
+  { value: 'today', label: 'Due Today' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'upcoming', label: 'Upcoming' },
+  { value: 'none', label: 'No Date' },
+]
+
+const HIRING_FILTER_OPTIONS = [
+  { value: 'active_contract_hiring', label: 'Contract' },
+  { value: 'active_fulltime_hiring', label: 'Full-Time' },
+  { value: 'active_hiring', label: 'Active Hiring' },
+  { value: 'weak_hiring', label: 'Weak Hiring' },
+  { value: 'no_signal', label: 'No Signal' },
+  { value: 'unknown', label: 'Unknown' },
+]
 
 function getEmailBlockReason(lead: Lead): string | null {
   if (!lead.email) return 'No email address'
@@ -77,12 +118,99 @@ function ownerDisplay(lead: Lead) {
   return '—'
 }
 
+// Standard column header with dropdown filter
+function ColHeader({
+  label,
+  active,
+  onClear,
+  children,
+}: {
+  label: string
+  active: boolean
+  onClear: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(
+          'flex items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:text-blue-600 cursor-pointer select-none rounded px-0.5 py-0.5',
+          active ? 'text-blue-600' : 'text-slate-500',
+        )}
+      >
+        {label}
+        <ChevronDown className={cn('ml-0.5 h-3 w-3 shrink-0', active && 'text-blue-500')} />
+        {active && <span className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-[150px]">
+        {children}
+        {active && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-xs text-slate-500" onClick={onClear}>
+              Clear filter
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// Owner column header with inline text search
+function OwnerColHeader({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  const active = !!value
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(
+          'flex items-center gap-0.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:text-blue-600 cursor-pointer select-none rounded px-0.5 py-0.5',
+          active ? 'text-blue-600' : 'text-slate-500',
+        )}
+      >
+        Owner
+        <ChevronDown className={cn('ml-0.5 h-3 w-3 shrink-0', active && 'text-blue-500')} />
+        {active && <span className="ml-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[190px] p-2">
+        <input
+          type="text"
+          placeholder="Filter by owner email…"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-400"
+          autoFocus
+        />
+        {active && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="mt-1.5 w-full rounded px-1 py-0.5 text-left text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          >
+            Clear filter
+          </button>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 interface Props {
   leads: Lead[]
   onRefresh: () => void
+  colFilters: ColFilters
+  onColFilterChange: (key: keyof ColFilters, value: string) => void
+  isAdmin: boolean
 }
 
-export function LeadsTable({ leads, onRefresh }: Props) {
+export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, isAdmin }: Props) {
   const { profile } = useAuth()
   const router = useRouter()
 
@@ -90,6 +218,8 @@ export function LeadsTable({ leads, onRefresh }: Props) {
   const [notesLead, setNotesLead] = useState<Lead | null>(null)
   const [activities, setActivities] = useState<LeadActivity[]>([])
   const [activitiesLoading, setActivitiesLoading] = useState(false)
+  const [editedNotes, setEditedNotes] = useState('')
+  const [notesSaving, setNotesSaving] = useState(false)
 
   // Outreach modal
   const [outreachLead, setOutreachLead] = useState<Lead | null>(null)
@@ -102,11 +232,26 @@ export function LeadsTable({ leads, onRefresh }: Props) {
 
   async function openNotesModal(lead: Lead) {
     setNotesLead(lead)
+    setEditedNotes(lead.notes ?? '')
     setActivities([])
     setActivitiesLoading(true)
     const { activities: acts } = await fetchActivities(lead.lead_id)
     setActivities(acts)
     setActivitiesLoading(false)
+  }
+
+  async function handleSaveNotes() {
+    if (!notesLead || !profile) return
+    setNotesSaving(true)
+    const { error } = await updateLeadNotes(notesLead.lead_id, editedNotes, profile.email)
+    if (error) {
+      toast.error(error.message)
+    } else {
+      toast.success('Notes saved')
+      setNotesLead((prev) => prev ? { ...prev, notes: editedNotes } : null)
+      onRefresh()
+    }
+    setNotesSaving(false)
   }
 
   async function openOutreachModal(lead: Lead) {
@@ -166,6 +311,18 @@ export function LeadsTable({ leads, onRefresh }: Props) {
     setSendLoading(false)
   }
 
+  // Suppress repeated daily_recommended noise in activity list
+  function dedupeActivities(acts: LeadActivity[]) {
+    let seenRecommended = false
+    return acts.filter((a) => {
+      if (a.activity_type === 'daily_recommended') {
+        if (seenRecommended) return false
+        seenRecommended = true
+      }
+      return true
+    })
+  }
+
   if (leads.length === 0) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white px-6 py-16 text-center">
@@ -181,21 +338,121 @@ export function LeadsTable({ leads, onRefresh }: Props) {
         <Table className="min-w-[1480px] text-xs">
           <TableHeader>
             <TableRow className="border-slate-200 bg-slate-50 hover:bg-slate-50">
-              <TableHead className="w-[130px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Actions</TableHead>
+              {/* Sticky: Actions */}
+              <TableHead className="w-[130px] py-2 sticky left-0 z-20 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Actions
+              </TableHead>
               <TableHead className="w-[60px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Created</TableHead>
-              <TableHead className="min-w-[130px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Contact</TableHead>
+              {/* Sticky: Contact */}
+              <TableHead className="min-w-[130px] py-2 sticky left-[130px] z-20 bg-slate-50 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)] text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Contact
+              </TableHead>
               <TableHead className="min-w-[120px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Account</TableHead>
               <TableHead className="min-w-[150px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Email</TableHead>
               <TableHead className="w-[110px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Phone</TableHead>
-              <TableHead className="w-[110px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Stage</TableHead>
-              <TableHead className="w-[80px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cat.</TableHead>
-              <TableHead className="w-[52px] py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-slate-500">Score</TableHead>
-              <TableHead className="w-[72px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Hiring</TableHead>
-              <TableHead className="w-[72px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Source</TableHead>
-              <TableHead className="w-[96px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Relationship</TableHead>
-              <TableHead className="w-[76px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Co. Type</TableHead>
-              <TableHead className="w-[80px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Follow-up</TableHead>
-              <TableHead className="min-w-[90px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Owner</TableHead>
+
+              <TableHead className="w-[110px] py-2">
+                <ColHeader label="Stage" active={!!colFilters.stage} onClear={() => onColFilterChange('stage', '')}>
+                  <DropdownMenuItem onClick={() => onColFilterChange('stage', '')}>All Stages</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {LEAD_STAGES.map(s => (
+                    <DropdownMenuItem key={s} onClick={() => onColFilterChange('stage', s)}>
+                      {STAGE_LABELS[s]}
+                    </DropdownMenuItem>
+                  ))}
+                </ColHeader>
+              </TableHead>
+
+              <TableHead className="w-[80px] py-2">
+                <ColHeader label="Cat." active={!!colFilters.category} onClear={() => onColFilterChange('category', '')}>
+                  <DropdownMenuItem onClick={() => onColFilterChange('category', '')}>All</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {CATEGORY_FILTER_OPTIONS.map(c => (
+                    <DropdownMenuItem key={c} onClick={() => onColFilterChange('category', c)}>{c}</DropdownMenuItem>
+                  ))}
+                </ColHeader>
+              </TableHead>
+
+              <TableHead className="w-[52px] py-2">
+                <ColHeader label="Score" active={!!colFilters.score} onClear={() => onColFilterChange('score', '')}>
+                  <DropdownMenuItem onClick={() => onColFilterChange('score', '')}>All Scores</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {SCORE_FILTER_OPTIONS.map(o => (
+                    <DropdownMenuItem key={o.value} onClick={() => onColFilterChange('score', o.value)}>
+                      {o.label}
+                    </DropdownMenuItem>
+                  ))}
+                </ColHeader>
+              </TableHead>
+
+              <TableHead className="w-[72px] py-2">
+                <ColHeader label="Hiring" active={!!colFilters.hiring} onClear={() => onColFilterChange('hiring', '')}>
+                  <DropdownMenuItem onClick={() => onColFilterChange('hiring', '')}>All</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {HIRING_FILTER_OPTIONS.map(o => (
+                    <DropdownMenuItem key={o.value} onClick={() => onColFilterChange('hiring', o.value)}>
+                      {o.label}
+                    </DropdownMenuItem>
+                  ))}
+                </ColHeader>
+              </TableHead>
+
+              <TableHead className="w-[72px] py-2">
+                <ColHeader label="Source" active={!!colFilters.source} onClear={() => onColFilterChange('source', '')}>
+                  <DropdownMenuItem onClick={() => onColFilterChange('source', '')}>All</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {LEAD_SOURCE_OPTIONS.map(s => (
+                    <DropdownMenuItem key={s} onClick={() => onColFilterChange('source', s)}>
+                      {LEAD_SOURCE_LABELS[s]}
+                    </DropdownMenuItem>
+                  ))}
+                </ColHeader>
+              </TableHead>
+
+              <TableHead className="w-[96px] py-2">
+                <ColHeader label="Relationship" active={!!colFilters.relationship} onClear={() => onColFilterChange('relationship', '')}>
+                  <DropdownMenuItem onClick={() => onColFilterChange('relationship', '')}>All</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {CLIENT_RELATIONSHIP_OPTIONS.map(r => (
+                    <DropdownMenuItem key={r} onClick={() => onColFilterChange('relationship', r)}>
+                      {CLIENT_RELATIONSHIP_LABELS[r]}
+                    </DropdownMenuItem>
+                  ))}
+                </ColHeader>
+              </TableHead>
+
+              <TableHead className="w-[76px] py-2">
+                <ColHeader label="Co. Type" active={!!colFilters.companyType} onClear={() => onColFilterChange('companyType', '')}>
+                  <DropdownMenuItem onClick={() => onColFilterChange('companyType', '')}>All</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {COMPANY_TYPE_OPTIONS.map(t => (
+                    <DropdownMenuItem key={t} onClick={() => onColFilterChange('companyType', t)}>
+                      {COMPANY_TYPE_LABELS[t]}
+                    </DropdownMenuItem>
+                  ))}
+                </ColHeader>
+              </TableHead>
+
+              <TableHead className="w-[80px] py-2">
+                <ColHeader label="Follow-up" active={!!colFilters.followup} onClear={() => onColFilterChange('followup', '')}>
+                  <DropdownMenuItem onClick={() => onColFilterChange('followup', '')}>All</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {FOLLOWUP_FILTER_OPTIONS.map(o => (
+                    <DropdownMenuItem key={o.value} onClick={() => onColFilterChange('followup', o.value)}>
+                      {o.label}
+                    </DropdownMenuItem>
+                  ))}
+                </ColHeader>
+              </TableHead>
+
+              <TableHead className="min-w-[90px] py-2">
+                {isAdmin ? (
+                  <OwnerColHeader value={colFilters.owner} onChange={(v) => onColFilterChange('owner', v)} />
+                ) : (
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Owner</span>
+                )}
+              </TableHead>
+
               <TableHead className="min-w-[150px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Notes</TableHead>
             </TableRow>
           </TableHeader>
@@ -204,12 +461,11 @@ export function LeadsTable({ leads, onRefresh }: Props) {
             {leads.map((lead, idx) => (
               <TableRow
                 key={lead.lead_id || idx}
-                className="border-slate-100 transition-colors hover:bg-slate-50"
+                className="group border-slate-100 transition-colors hover:bg-slate-50"
               >
-                {/* Actions */}
-                <TableCell className="py-1.5 pr-1">
+                {/* Sticky: Actions */}
+                <TableCell className="py-1.5 pr-1 sticky left-0 z-10 bg-white group-hover:bg-slate-50">
                   <div className="flex items-center gap-0.5">
-                    {/* More actions — slate */}
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xs' }), 'text-slate-500 hover:text-slate-800')}
@@ -247,7 +503,6 @@ export function LeadsTable({ leads, onRefresh }: Props) {
                       </DropdownMenuContent>
                     </DropdownMenu>
 
-                    {/* Notes — amber */}
                     <Button
                       variant="ghost"
                       size="icon-xs"
@@ -258,7 +513,6 @@ export function LeadsTable({ leads, onRefresh }: Props) {
                       <FileText className="h-3.5 w-3.5" />
                     </Button>
 
-                    {/* Email — blue; disabled with reason if blocked */}
                     {(() => {
                       const blockReason = getEmailBlockReason(lead)
                       return (
@@ -275,7 +529,6 @@ export function LeadsTable({ leads, onRefresh }: Props) {
                       )
                     })()}
 
-                    {/* Call — green */}
                     {lead.phone ? (
                       <a
                         href={`tel:${lead.phone}`}
@@ -296,7 +549,6 @@ export function LeadsTable({ leads, onRefresh }: Props) {
                       </Button>
                     )}
 
-                    {/* Edit — violet */}
                     <Link
                       href={`/dashboard/leads/${lead.lead_id}/edit`}
                       className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xs' }), 'text-violet-500 hover:text-violet-700 hover:bg-violet-50')}
@@ -315,8 +567,8 @@ export function LeadsTable({ leads, onRefresh }: Props) {
                   {fmtDate(lead.created_at)}
                 </TableCell>
 
-                {/* Contact */}
-                <TableCell className="py-1.5 max-w-[160px]">
+                {/* Sticky: Contact */}
+                <TableCell className="py-1.5 max-w-[160px] sticky left-[130px] z-10 bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)]">
                   <Link
                     href={`/dashboard/leads/${lead.lead_id}`}
                     className="block truncate font-medium text-slate-900 hover:text-blue-700 transition-colors"
@@ -381,23 +633,17 @@ export function LeadsTable({ leads, onRefresh }: Props) {
 
                 {/* Source */}
                 <TableCell className="py-1.5 whitespace-nowrap text-slate-600">
-                  {lead.lead_source
-                    ? (LEAD_SOURCE_LABELS[lead.lead_source] ?? lead.lead_source)
-                    : '—'}
+                  {lead.lead_source ? (LEAD_SOURCE_LABELS[lead.lead_source] ?? lead.lead_source) : '—'}
                 </TableCell>
 
                 {/* Relationship */}
                 <TableCell className="py-1.5 whitespace-nowrap text-slate-600">
-                  {lead.client_relationship
-                    ? (CLIENT_RELATIONSHIP_LABELS[lead.client_relationship] ?? lead.client_relationship)
-                    : '—'}
+                  {lead.client_relationship ? (CLIENT_RELATIONSHIP_LABELS[lead.client_relationship] ?? lead.client_relationship) : '—'}
                 </TableCell>
 
                 {/* Company Type */}
                 <TableCell className="py-1.5 whitespace-nowrap text-slate-600">
-                  {lead.company_type
-                    ? (COMPANY_TYPE_LABELS[lead.company_type] ?? lead.company_type)
-                    : '—'}
+                  {lead.company_type ? (COMPANY_TYPE_LABELS[lead.company_type] ?? lead.company_type) : '—'}
                 </TableCell>
 
                 {/* Next Follow-up */}
@@ -407,10 +653,7 @@ export function LeadsTable({ leads, onRefresh }: Props) {
 
                 {/* Owner */}
                 <TableCell className="py-1.5 max-w-[110px]">
-                  <span
-                    className="block truncate text-slate-600"
-                    title={lead.lead_owner_email ?? undefined}
-                  >
+                  <span className="block truncate text-slate-600" title={lead.lead_owner_email ?? undefined}>
                     {ownerDisplay(lead)}
                   </span>
                 </TableCell>
@@ -426,7 +669,13 @@ export function LeadsTable({ leads, onRefresh }: Props) {
                       {lead.notes.length > 45 ? `${lead.notes.slice(0, 45)}…` : lead.notes}
                     </span>
                   ) : (
-                    <span className="text-slate-400">—</span>
+                    <span
+                      className="cursor-pointer text-slate-300 hover:text-slate-500"
+                      title="Add notes"
+                      onClick={() => { void openNotesModal(lead) }}
+                    >
+                      Add note…
+                    </span>
                   )}
                 </TableCell>
               </TableRow>
@@ -439,17 +688,44 @@ export function LeadsTable({ leads, onRefresh }: Props) {
       <Dialog open={!!notesLead} onOpenChange={(open) => { if (!open) setNotesLead(null) }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              {notesLead?.contact_name ?? 'Lead'} — Notes &amp; Activity
-            </DialogTitle>
+            <div className="flex items-start justify-between gap-2">
+              <DialogTitle className="text-base">
+                {notesLead?.contact_name ?? 'Lead'} — Notes &amp; Activity
+              </DialogTitle>
+              {notesLead && (
+                <Link
+                  href={`/dashboard/leads/${notesLead.lead_id}`}
+                  className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                  onClick={() => setNotesLead(null)}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Open full lead
+                </Link>
+              )}
+            </div>
           </DialogHeader>
           <div className="mt-2 space-y-4">
-            {notesLead?.notes && (
-              <div>
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Notes</p>
-                <p className="whitespace-pre-wrap text-sm text-slate-700">{notesLead.notes}</p>
-              </div>
-            )}
+            {/* Editable notes */}
+            <div>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Notes</p>
+              <Textarea
+                value={editedNotes}
+                onChange={(e) => setEditedNotes(e.target.value)}
+                rows={4}
+                placeholder="Add notes about this lead…"
+                className="resize-none text-sm"
+              />
+              <Button
+                size="sm"
+                onClick={() => { void handleSaveNotes() }}
+                disabled={notesSaving || editedNotes === (notesLead?.notes ?? '')}
+                className="mt-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+              >
+                {notesSaving ? 'Saving…' : 'Save Notes'}
+              </Button>
+            </div>
+
+            {/* Activity timeline */}
             <div>
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recent Activity</p>
               {activitiesLoading ? (
@@ -459,8 +735,8 @@ export function LeadsTable({ leads, onRefresh }: Props) {
               ) : activities.length === 0 ? (
                 <p className="py-4 text-center text-xs text-slate-400">No activity recorded yet.</p>
               ) : (
-                <ul className="max-h-60 space-y-3 overflow-y-auto">
-                  {activities.slice(0, 10).map((act, i) => (
+                <ul className="max-h-52 space-y-3 overflow-y-auto">
+                  {dedupeActivities(activities).slice(0, 12).map((act, i) => (
                     <li key={act.activity_id || i} className="flex gap-2">
                       <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
                       <div>
@@ -520,9 +796,7 @@ export function LeadsTable({ leads, onRefresh }: Props) {
                       {templates.map((t) => (
                         <SelectItem key={t.template_id} value={t.template_id}>
                           {t.template_name}
-                          {t.template_type
-                            ? ` · ${TEMPLATE_TYPE_LABELS[t.template_type] ?? t.template_type}`
-                            : ''}
+                          {t.template_type ? ` · ${TEMPLATE_TYPE_LABELS[t.template_type] ?? t.template_type}` : ''}
                         </SelectItem>
                       ))}
                     </SelectContent>

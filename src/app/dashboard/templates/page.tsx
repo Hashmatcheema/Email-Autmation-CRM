@@ -22,6 +22,16 @@ import {
 } from '@/components/ui/dialog'
 import { TEMPLATE_TYPES, TEMPLATE_TYPE_LABELS, type EmailTemplate } from '@/lib/types'
 
+function friendlySubject(subject: string): string {
+  return subject
+    .replace(/\{\{first_name\}\}/g, '[First Name]')
+    .replace(/\{\{company_name\}\}/g, '[Company]')
+    .replace(/\{\{contact_name\}\}/g, '[Contact]')
+    .replace(/\{\{sender_name\}\}/g, '[Sender]')
+    .replace(/\{\{industry\}\}/g, '[Industry]')
+    .replace(/\{\{hiring_signal\}\}/g, '[Hiring]')
+}
+
 const VARIABLES: { label: string; value: string }[] = [
   { label: 'First Name', value: '{{first_name}}' },
   { label: 'Company Name', value: '{{company_name}}' },
@@ -228,7 +238,9 @@ export default function TemplatesPage() {
                     )}
                   </TableCell>
                   <TableCell className="max-w-[260px]">
-                    <span className="block truncate text-sm text-slate-600">{t.subject}</span>
+                    <span className="block truncate text-sm text-slate-600" title={t.subject}>
+                      {friendlySubject(t.subject)}
+                    </span>
                   </TableCell>
                   <TableCell className="text-center">
                     {t.is_active ? (
@@ -386,7 +398,7 @@ function TemplateForm({
         </Label>
       </div>
 
-      <div className="flex gap-3">
+      <div className="sticky bottom-0 flex gap-3 border-t border-slate-100 bg-white pt-3">
         <Button type="submit" disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-700">
           {saving ? 'Saving…' : submitLabel}
         </Button>

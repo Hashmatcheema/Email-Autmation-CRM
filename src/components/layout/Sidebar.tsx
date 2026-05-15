@@ -4,7 +4,7 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, Users, Mail, BarChart2, Star, Clock,
+  LayoutDashboard, Users, Mail, BarChart2,
   Activity, UserCog, UserCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -27,9 +27,7 @@ export function Sidebar() {
 
   const mainNav: NavItem[] = [
     { href: dashboardHref, label: isAdmin ? 'Dashboard' : 'My Dashboard', icon: LayoutDashboard, dashboardRoot: true },
-    { href: '/dashboard/leads', label: isAdmin ? 'All Leads' : 'My Leads', icon: Users },
-    { href: '/dashboard/recommended', label: isAdmin ? 'Recommended Leads' : "Today's Recommended", icon: Star },
-    { href: '/dashboard/follow-ups', label: 'Follow-ups', icon: Clock },
+    { href: '/dashboard/leads', label: 'Leads', icon: Users },
     ...(isAdmin ? [{ href: '/dashboard/activity', label: 'Sales Activity', icon: Activity }] : []),
   ]
 

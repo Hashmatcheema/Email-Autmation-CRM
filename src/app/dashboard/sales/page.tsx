@@ -113,7 +113,7 @@ export default function SalesDashboard() {
         <Card className="border-slate-200 shadow-none">
           <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 px-6 py-4">
             <CardTitle className="text-sm font-semibold text-slate-900">Follow-ups Due</CardTitle>
-            <Link href="/dashboard/leads" className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
+            <Link href="/dashboard/leads?followup=overdue" className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
               View all <ArrowRight className="h-3 w-3" />
             </Link>
           </CardHeader>

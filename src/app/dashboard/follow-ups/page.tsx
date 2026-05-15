@@ -4,8 +4,13 @@ import { useEffect, useState } from 'react'
 import { Clock } from 'lucide-react'
 import { useAuth } from '@/components/providers/AuthProvider'
 import { fetchLeads } from '@/lib/services/leads'
-import { LeadsTable } from '@/components/leads/LeadsTable'
+import { LeadsTable, type ColFilters } from '@/components/leads/LeadsTable'
 import type { Lead } from '@/lib/types'
+
+const EMPTY_COL_FILTERS: ColFilters = {
+  stage: '', category: '', score: '', hiring: '',
+  source: '', relationship: '', companyType: '', followup: '', owner: '',
+}
 
 export default function FollowUpsPage() {
   const { profile } = useAuth()
@@ -58,7 +63,13 @@ export default function FollowUpsPage() {
           </p>
         </div>
       ) : (
-        <LeadsTable leads={leads} onRefresh={() => setRefreshKey((k) => k + 1)} />
+        <LeadsTable
+          leads={leads}
+          onRefresh={() => setRefreshKey((k) => k + 1)}
+          colFilters={EMPTY_COL_FILTERS}
+          onColFilterChange={() => {}}
+          isAdmin={false}
+        />
       )}
     </div>
   )
