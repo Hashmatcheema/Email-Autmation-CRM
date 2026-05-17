@@ -94,6 +94,10 @@ export default function LeadDetailPage() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [sendLoading, setSendLoading] = useState(false)
+  const [prepareLoading, setPrepareLoading] = useState(false)
+  const [preparedSubject, setPreparedSubject] = useState<string | null>(null)
+  const [preparedBody, setPreparedBody] = useState<string | null>(null)
+  const [prepareError, setPrepareError] = useState<string | null>(null)
 
   // Note input state
   const [noteText, setNoteText] = useState('')
@@ -140,14 +144,61 @@ export default function LeadDetailPage() {
     setOutreachOpen(true)
   }
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!selectedTemplate || !lead) {
+        setPreparedSubject(null)
+        setPreparedBody(null)
+        setPrepareError(null)
+        return
+      }
+      setPrepareLoading(true)
+      setPrepareError(null)
+      setPreparedSubject(null)
+      setPreparedBody(null)
+      try {
+        const res = await fetch('/api/n8n/email/prepare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lead_id: lead.lead_id,
+            template_id: selectedTemplate.template_id,
+            sender_email: profile?.email ?? null,
+            sent_by_name: profile?.name ?? null,
+          }),
+        })
+        if (cancelled) return
+        const json = (await res.json().catch(() => ({}))) as {
+          success?: boolean
+          data?: { subject?: string; body?: string } | Array<{ subject?: string; body?: string }>
+          error?: string
+        }
+        if (!res.ok) {
+          // 503 = webhook not configured; fall back to client-side interpolation silently
+          if (res.status !== 503) setPrepareError(json.error ?? `Prepare returned ${res.status}`)
+          return
+        }
+        const merged = Array.isArray(json.data) ? json.data[0] : json.data
+        if (merged?.subject) setPreparedSubject(merged.subject)
+        if (merged?.body) setPreparedBody(merged.body)
+      } catch {
+        if (!cancelled) setPrepareError('Failed to reach prepare workflow.')
+      } finally {
+        if (!cancelled) setPrepareLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [selectedTemplate, lead, profile])
+
   async function handleSendOutreach() {
     if (!selectedTemplate || !lead || sendLoading) return
     setSendLoading(true)
     const senderName = profile?.name ?? profile?.email ?? ''
-    const subject = interpolate(selectedTemplate.subject, lead, senderName)
-    const body = interpolate(selectedTemplate.body, lead, senderName)
+    const subject = preparedSubject ?? interpolate(selectedTemplate.subject, lead, senderName)
+    const body = preparedBody ?? interpolate(selectedTemplate.body, lead, senderName)
 
-    const res = await fetch('/api/outreach/send', {
+    const res = await fetch('/api/n8n/email/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -573,16 +624,24 @@ export default function LeadDetailPage() {
 
                 {selectedTemplate && (
                   <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Preview {prepareLoading ? '· merging…' : (preparedSubject || preparedBody) ? '· server-merged' : '· local fallback'}
+                      </p>
+                      {prepareError && (
+                        <p className="text-[11px] text-amber-600">{prepareError}</p>
+                      )}
+                    </div>
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Subject</p>
                       <p className="mt-1 text-sm text-slate-900">
-                        {interpolate(selectedTemplate.subject, lead, profile?.name ?? profile?.email ?? '')}
+                        {preparedSubject ?? interpolate(selectedTemplate.subject, lead, profile?.name ?? profile?.email ?? '')}
                       </p>
                     </div>
                     <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Body Preview</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Body</p>
                       <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700 max-h-48 overflow-y-auto">
-                        {interpolate(selectedTemplate.body, lead, profile?.name ?? profile?.email ?? '')}
+                        {preparedBody ?? interpolate(selectedTemplate.body, lead, profile?.name ?? profile?.email ?? '')}
                       </p>
                     </div>
                   </div>

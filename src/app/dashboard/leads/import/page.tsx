@@ -2,7 +2,8 @@
 
 import { useRef, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Upload, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+import * as XLSX from 'xlsx'
+import { ArrowLeft, Upload, CheckCircle2, XCircle, AlertCircle, FileSpreadsheet } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useAuth } from '@/components/providers/AuthProvider'
@@ -41,27 +42,6 @@ const CRM_FIELDS = [
   { value: 'notes', label: 'Notes' },
   { value: 'category', label: 'Category' },
 ]
-
-function parseCSV(text: string): { headers: string[]; rows: string[][] } {
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-  if (lines.length === 0) return { headers: [], rows: [] }
-
-  function parseRow(line: string): string[] {
-    const result: string[] = []
-    let current = ''
-    let inQuotes = false
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i]
-      if (c === '"') { inQuotes = !inQuotes }
-      else if (c === ',' && !inQuotes) { result.push(current.trim()); current = '' }
-      else { current += c }
-    }
-    result.push(current.trim())
-    return result
-  }
-
-  return { headers: parseRow(lines[0]), rows: lines.slice(1).map(parseRow) }
-}
 
 function autoDetectMapping(headers: string[]): Record<number, string> {
   const hints: Record<string, string> = {
@@ -108,6 +88,48 @@ interface ImportResult {
   imported: number
   failed: number
   errors: string[]
+  automationOk: boolean | null
+  automationMessage: string | null
+}
+
+const ACCEPTED_EXTS = ['.csv', '.tsv', '.xlsx', '.xls']
+const ACCEPT_ATTR = '.csv,text/csv,.tsv,text/tab-separated-values,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel'
+
+function getExt(name: string): string {
+  const i = name.lastIndexOf('.')
+  return i >= 0 ? name.slice(i).toLowerCase() : ''
+}
+
+function parseDelimited(text: string, delimiter: string): { headers: string[]; rows: string[][] } {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  if (lines.length === 0) return { headers: [], rows: [] }
+
+  function parseRow(line: string): string[] {
+    const result: string[] = []
+    let current = ''
+    let inQuotes = false
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i]
+      if (c === '"') { inQuotes = !inQuotes }
+      else if (c === delimiter && !inQuotes) { result.push(current.trim()); current = '' }
+      else { current += c }
+    }
+    result.push(current.trim())
+    return result
+  }
+
+  return { headers: parseRow(lines[0]), rows: lines.slice(1).map(parseRow) }
+}
+
+function parseWorkbook(buf: ArrayBuffer): { headers: string[]; rows: string[][]; sheetName: string; sheetCount: number } {
+  const wb = XLSX.read(buf, { type: 'array' })
+  const sheetName = wb.SheetNames[0]
+  if (!sheetName) return { headers: [], rows: [], sheetName: '', sheetCount: 0 }
+  const sheet = wb.Sheets[sheetName]
+  const aoa = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, blankrows: false, defval: '' })
+  const headers = (aoa[0] ?? []).map((v) => String(v ?? '').trim())
+  const rows = aoa.slice(1).map((r) => r.map((v) => String(v ?? '').trim()))
+  return { headers, rows, sheetName, sheetCount: wb.SheetNames.length }
 }
 
 export default function ImportCSVPage() {
@@ -117,24 +139,53 @@ export default function ImportCSVPage() {
   const supabase = getSupabaseBrowserClient()
 
   const [csvData, setCsvData] = useState<{ headers: string[]; rows: string[][] } | null>(null)
+  const [fileMeta, setFileMeta] = useState<{ name: string; ext: string; sheetName?: string; sheetCount?: number } | null>(null)
   const [mapping, setMapping] = useState<Record<number, string>>({})
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
 
   function handleFile(file: File) {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const text = e.target?.result as string
-      const parsed = parseCSV(text)
-      if (parsed.headers.length === 0) {
-        toast.error('Could not parse CSV — no headers found')
-        return
-      }
-      setCsvData(parsed)
-      setMapping(autoDetectMapping(parsed.headers))
-      setResult(null)
+    const ext = getExt(file.name)
+    if (!ACCEPTED_EXTS.includes(ext)) {
+      toast.error(`Unsupported file type: ${ext || 'unknown'}. Use CSV, TSV, XLSX or XLS.`)
+      return
     }
-    reader.readAsText(file)
+
+    if (ext === '.xlsx' || ext === '.xls') {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const buf = e.target?.result as ArrayBuffer
+        const { headers, rows, sheetName, sheetCount } = parseWorkbook(buf)
+        if (headers.length === 0) {
+          toast.error('Could not read sheet — no headers found in first row')
+          return
+        }
+        setCsvData({ headers, rows })
+        setFileMeta({ name: file.name, ext, sheetName, sheetCount })
+        setMapping(autoDetectMapping(headers))
+        setResult(null)
+        if (sheetCount > 1) {
+          toast.message(`Workbook has ${sheetCount} sheets — using "${sheetName}"`)
+        }
+      }
+      reader.readAsArrayBuffer(file)
+    } else {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const text = e.target?.result as string
+        const delimiter = ext === '.tsv' ? '\t' : ','
+        const parsed = parseDelimited(text, delimiter)
+        if (parsed.headers.length === 0) {
+          toast.error('Could not parse file — no headers found')
+          return
+        }
+        setCsvData(parsed)
+        setFileMeta({ name: file.name, ext })
+        setMapping(autoDetectMapping(parsed.headers))
+        setResult(null)
+      }
+      reader.readAsText(file)
+    }
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -145,7 +196,7 @@ export default function ImportCSVPage() {
   function onDrop(e: React.DragEvent) {
     e.preventDefault()
     const file = e.dataTransfer.files?.[0]
-    if (file && file.name.endsWith('.csv')) handleFile(file)
+    if (file) handleFile(file)
   }
 
   async function handleImport() {
@@ -197,6 +248,7 @@ export default function ImportCSVPage() {
 
     let imported = 0
     let failed = 0
+    const importedIds: string[] = []
 
     if (rows.length > 0) {
       const BATCH = 50
@@ -213,6 +265,7 @@ export default function ImportCSVPage() {
           imported += batch.length
           // Log activity for each imported lead
           const ids = (data as { lead_id: string }[]).map((r) => r.lead_id)
+          importedIds.push(...ids)
           await Promise.all(
             ids.map((id) =>
               logActivity(id, 'lead_created', `Imported from CSV by ${profile?.email ?? 'unknown'}`, profile?.email ?? 'unknown')
@@ -222,7 +275,50 @@ export default function ImportCSVPage() {
       }
     }
 
-    setResult({ imported, failed: failed + errors.filter((e) => e.includes('skipped')).length, errors })
+    // Best-effort: notify n8n CSV import workflow for enrichment / scoring.
+    // DB inserts above are the source of truth; webhook failure does not block.
+    let automationOk: boolean | null = null
+    let automationMessage: string | null = null
+    if (importedIds.length > 0) {
+      automationOk = false
+      try {
+        const res = await fetch('/api/n8n/leads/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source: 'csv_import',
+            created_by_email: profile?.email ?? null,
+            created_by_name: profile?.name ?? null,
+            default_lead_owner_email: profile?.email ?? null,
+            default_lead_owner_name: profile?.name ?? null,
+            lead_ids: importedIds,
+            records: rows,
+          }),
+        })
+        if (res.ok) {
+          automationOk = true
+        } else {
+          const j = (await res.json().catch(() => ({}))) as { error?: string; upstream_status?: number }
+          if (res.status === 503) {
+            automationMessage = 'Automation is not configured on this server.'
+          } else if (j.upstream_status === 404 || res.status === 404) {
+            automationMessage = 'n8n import webhook returned 404 (test webhook not armed).'
+          } else {
+            automationMessage = j.error ?? `n8n import webhook returned ${res.status}.`
+          }
+        }
+      } catch {
+        automationMessage = 'Could not reach the automation webhook.'
+      }
+    }
+
+    setResult({
+      imported,
+      failed: failed + errors.filter((e) => e.includes('skipped')).length,
+      errors,
+      automationOk,
+      automationMessage,
+    })
     setImporting(false)
 
     if (imported > 0) {
@@ -263,6 +359,22 @@ export default function ImportCSVPage() {
             )}
           </div>
 
+          {result.imported > 0 && result.automationOk === false && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-medium text-amber-900">
+                {result.imported} lead{result.imported !== 1 ? 's' : ''} imported successfully.
+                Automation did not run, so scoring/enrichment may need to be refreshed.
+              </p>
+              {result.automationMessage && (
+                <p className="mt-1 text-xs text-amber-700">{result.automationMessage}</p>
+              )}
+            </div>
+          )}
+
+          {result.imported > 0 && result.automationOk === true && (
+            <p className="text-xs text-slate-500">Automation notified — enrichment will run in the background.</p>
+          )}
+
           {result.errors.length > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
               <p className="text-xs font-semibold text-amber-800 mb-2">Issues:</p>
@@ -281,7 +393,7 @@ export default function ImportCSVPage() {
             <Button onClick={() => router.push('/dashboard/leads')} className="bg-blue-600 hover:bg-blue-700">
               View Leads
             </Button>
-            <Button variant="outline" onClick={() => { setCsvData(null); setResult(null) }}>
+            <Button variant="outline" onClick={() => { setCsvData(null); setFileMeta(null); setResult(null) }}>
               Import Another
             </Button>
           </div>
@@ -297,8 +409,8 @@ export default function ImportCSVPage() {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div>
-          <h2 className="text-base font-semibold text-slate-900">Import Leads from CSV</h2>
-          <p className="text-xs text-slate-500">Upload a CSV file, map columns, then import</p>
+          <h2 className="text-base font-semibold text-slate-900">Import Leads</h2>
+          <p className="text-xs text-slate-500">Upload a CSV, TSV, or Excel file, map columns, then import</p>
         </div>
       </div>
 
@@ -310,12 +422,37 @@ export default function ImportCSVPage() {
           onClick={() => fileRef.current?.click()}
         >
           <Upload className="mx-auto h-10 w-10 text-slate-300 mb-4" />
-          <p className="text-sm font-medium text-slate-700">Drop a CSV file here or click to browse</p>
-          <p className="mt-1 text-xs text-slate-400">First row must be headers</p>
-          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={onFileChange} />
+          <p className="text-sm font-medium text-slate-700">Drop a spreadsheet here or click to browse</p>
+          <p className="mt-1 text-xs text-slate-400">CSV · TSV · XLSX · XLS — first row must be headers</p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept={ACCEPT_ATTR}
+            multiple={false}
+            className="hidden"
+            onChange={onFileChange}
+          />
         </div>
       ) : (
         <div className="space-y-5">
+          {fileMeta && (
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <FileSpreadsheet className="h-4 w-4 shrink-0 text-slate-500" />
+              <p className="text-xs text-slate-700">
+                <span className="font-medium">{fileMeta.name}</span>
+                <span className="ml-2 rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 border border-slate-200">
+                  {fileMeta.ext.replace('.', '')}
+                </span>
+                {fileMeta.sheetName && (
+                  <span className="ml-2 text-slate-500">
+                    sheet: <span className="font-medium text-slate-700">{fileMeta.sheetName}</span>
+                    {fileMeta.sheetCount && fileMeta.sheetCount > 1 ? ` (1 of ${fileMeta.sheetCount})` : ''}
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+
           {/* Column Mapping */}
           <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
             <h3 className="text-sm font-semibold text-slate-900">Map Columns</h3>
@@ -398,7 +535,7 @@ export default function ImportCSVPage() {
             >
               {importing ? 'Importing…' : `Import ${csvData.rows.length} Rows`}
             </Button>
-            <Button variant="outline" onClick={() => { setCsvData(null); setMapping({}) }}>
+            <Button variant="outline" onClick={() => { setCsvData(null); setFileMeta(null); setMapping({}) }}>
               Cancel
             </Button>
           </div>

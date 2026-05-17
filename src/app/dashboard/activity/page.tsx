@@ -210,71 +210,77 @@ export default function SalesActivityPage() {
         ))}
       </div>
 
-      {/* View tabs */}
-      <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white w-fit overflow-hidden text-xs">
-        {([
-          { value: 'all', label: 'All Activity' },
-          { value: 'sales', label: 'Sales Activity' },
-          { value: 'system', label: 'System Activity' },
-        ] as { value: ViewMode; label: string }[]).map((t) => (
-          <button
-            key={t.value}
-            type="button"
-            onClick={() => { setView(t.value); setPage(0) }}
-            className={`px-3 py-1.5 font-medium transition-colors ${
-              view === t.value
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        <div className="flex rounded-lg border border-slate-200 bg-white overflow-hidden text-xs">
-          {DATE_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => { setDatePreset(p.value); setPage(0) }}
-              className={`px-3 py-1.5 font-medium transition-colors ${
-                datePreset === p.value
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        <Select value={activityTypeFilter} onValueChange={(v) => { setActivityTypeFilter(v ?? ''); setPage(0) }}>
-          <SelectTrigger className="w-[170px] text-sm">
-            <SelectValue placeholder="All Types" />
-          </SelectTrigger>
-          <SelectContent>
-            {ACTIVITY_TYPE_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+      {/* Filter toolbar — grouped, responsive */}
+      <div className="space-y-2">
+        {/* Row 1: activity scope (view tabs) + record count */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white overflow-hidden text-xs">
+            {([
+              { value: 'all', label: 'All Activity' },
+              { value: 'sales', label: 'Sales Activity' },
+              { value: 'system', label: 'System Activity' },
+            ] as { value: ViewMode; label: string }[]).map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => { setView(t.value); setPage(0) }}
+                className={`px-3 py-1.5 font-medium transition-colors ${
+                  view === t.value
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {t.label}
+              </button>
             ))}
-          </SelectContent>
-        </Select>
+          </div>
 
-        <div className="relative min-w-[180px]">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <Input
-            placeholder="Filter by salesperson…"
-            value={performedByFilter}
-            onChange={(e) => { setPerformedByFilter(e.target.value); setPage(0) }}
-            className="pl-8 text-sm"
-          />
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+            {loading ? 'Loading…' : `Showing ${total} record${total !== 1 ? 's' : ''}`}
+          </span>
         </div>
 
-        <p className="self-center text-xs text-slate-500">
-          {loading ? '…' : `${total} record${total !== 1 ? 's' : ''}`}
-        </p>
+        {/* Row 2: date range + type dropdown + search */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-slate-200 bg-white overflow-hidden text-xs">
+            {DATE_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => { setDatePreset(p.value); setPage(0) }}
+                className={`px-3 py-1.5 font-medium transition-colors ${
+                  datePreset === p.value
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <Select value={activityTypeFilter} onValueChange={(v) => { setActivityTypeFilter(v ?? ''); setPage(0) }}>
+            <SelectTrigger className="w-[170px] text-sm">
+              <SelectValue placeholder="All Types" />
+            </SelectTrigger>
+            <SelectContent>
+              {ACTIVITY_TYPE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="relative min-w-[200px] flex-1 max-w-xs">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Input
+              placeholder="Filter by salesperson…"
+              value={performedByFilter}
+              onChange={(e) => { setPerformedByFilter(e.target.value); setPage(0) }}
+              className="pl-8 text-sm"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Table */}

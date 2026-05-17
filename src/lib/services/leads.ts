@@ -233,3 +233,70 @@ export async function updateLeadStage(
 
   return { error }
 }
+
+/**
+ * Bulk update many leads at once. Each lead is logged individually so the
+ * audit trail in lead_activities stays accurate.
+ *
+ * `activityType` controls what gets logged per lead — pass null to skip logging.
+ */
+export async function bulkUpdateLeads(
+  leadIds: string[],
+  patch: Record<string, unknown>,
+  performedBy: string,
+  options: { activityType: string | null; activityNote?: string },
+): Promise<{ updated: number; errors: string[] }> {
+  if (leadIds.length === 0) return { updated: 0, errors: [] }
+  const supabase = getSupabaseBrowserClient()
+
+  const fullPatch = { ...patch, last_updated: new Date().toISOString() }
+  const { data, error } = await supabase
+    .from('leads')
+    .update(fullPatch)
+    .in('lead_id', leadIds)
+    .select('lead_id')
+
+  if (error) return { updated: 0, errors: [error.message] }
+
+  const updatedIds = ((data as { lead_id: string }[] | null) ?? []).map((r) => r.lead_id)
+
+  if (options.activityType) {
+    await Promise.all(
+      updatedIds.map((id) =>
+        logActivity(id, options.activityType!, options.activityNote ?? '', performedBy)
+      )
+    )
+  }
+  return { updated: updatedIds.length, errors: [] }
+}
+
+/**
+ * Hard delete leads. We delete the lead_activities rows first so that hard
+ * delete is safe regardless of whether the DB has ON DELETE CASCADE on the FK.
+ * Admin-only at the API layer — this function does not enforce role.
+ */
+export async function deleteLeads(leadIds: string[]): Promise<{ deleted: number; error: string | null }> {
+  if (leadIds.length === 0) return { deleted: 0, error: null }
+  const supabase = getSupabaseBrowserClient()
+
+  // 1. Remove activity rows so we don't violate FK if cascade is not configured.
+  const { error: actErr } = await supabase
+    .from('lead_activities')
+    .delete()
+    .in('lead_id', leadIds)
+  if (actErr) {
+    // Ignore "no rows" but surface real errors
+    if (!actErr.message.toLowerCase().includes('no rows')) {
+      return { deleted: 0, error: `Failed to delete activities: ${actErr.message}` }
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('leads')
+    .delete()
+    .in('lead_id', leadIds)
+    .select('lead_id')
+
+  if (error) return { deleted: 0, error: error.message }
+  return { deleted: ((data as { lead_id: string }[] | null) ?? []).length, error: null }
+}

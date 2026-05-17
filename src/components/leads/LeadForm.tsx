@@ -142,6 +142,30 @@ export function LeadForm({ lead, mode }: Props) {
       )
     }
 
+    // Best-effort: notify n8n for enrichment / downstream workflows.
+    // DB write above is the source of truth; webhook failure does not block the user.
+    if (newLeadId) {
+      try {
+        const res = await fetch('/api/n8n/leads/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...payload,
+            lead_id: newLeadId,
+            mode: mode === 'create' ? 'create' : 'update',
+            created_by_email: profile?.email ?? null,
+            created_by_name: profile?.name ?? null,
+          }),
+        })
+        if (!res.ok && res.status !== 503) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string }
+          toast.warning(`Lead saved, but automation notify failed: ${j.error ?? res.status}`)
+        }
+      } catch {
+        // Non-fatal — DB save already succeeded
+      }
+    }
+
     toast.success(mode === 'create' ? 'Lead created' : 'Lead updated')
 
     if (newLeadId) {

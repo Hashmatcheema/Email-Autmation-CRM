@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  forwardToN8n, webhookNotConfigured, webhookFailed, getSendEmailWebhookUrl,
-} from '@/lib/server/n8n'
+import { forwardToN8n, webhookNotConfigured, webhookFailed } from '@/lib/server/n8n'
 
-// Legacy route — kept for backward compatibility. New code should call /api/n8n/email/send.
 export async function POST(req: NextRequest) {
-  const url = getSendEmailWebhookUrl()
-  if (!url) return webhookNotConfigured('Email send')
+  const url = process.env.N8N_EMAIL_PREPARE_WEBHOOK_URL
+  if (!url) return webhookNotConfigured('Email prepare')
 
   let body: unknown
   try {
@@ -16,7 +13,7 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await forwardToN8n(url, body)
-  if (!result.ok) return webhookFailed('Email send', result.status)
+  if (!result.ok) return webhookFailed('Email prepare', result.status)
 
   return NextResponse.json({ success: true, data: result.data })
 }

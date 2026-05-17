@@ -2,13 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { UserPlus, Trash2, AlertTriangle } from 'lucide-react'
 import { useAuth } from '@/components/providers/AuthProvider'
 import { getSupabaseBrowserClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog'
 import type { UserProfile } from '@/lib/types'
 
 interface UserWithLeads extends UserProfile {
@@ -20,6 +26,16 @@ export default function UserManagementPage() {
   const [users, setUsers] = useState<UserWithLeads[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Create user dialog
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'sales' as 'admin' | 'sales' })
+  const [createBusy, setCreateBusy] = useState(false)
+
+  // Delete user dialog
+  const [deleteTarget, setDeleteTarget] = useState<UserWithLeads | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   useEffect(() => {
     if (!profile || !isAdmin) return
@@ -48,12 +64,77 @@ export default function UserManagementPage() {
       setLoading(false)
     }
     void load()
-  }, [profile, isAdmin])
+  }, [profile, isAdmin, refreshKey])
+
+  async function handleCreateUser() {
+    if (createBusy) return
+    if (!createForm.email.trim() || !createForm.password) {
+      toast.error('Email and password are required')
+      return
+    }
+    if (createForm.password.length < 8) {
+      toast.error('Password must be at least 8 characters')
+      return
+    }
+    setCreateBusy(true)
+    const res = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: createForm.email.trim(),
+        password: createForm.password,
+        name: createForm.name.trim() || undefined,
+        role: createForm.role,
+        is_active: true,
+      }),
+    })
+    const json = (await res.json().catch(() => ({}))) as { error?: string }
+    setCreateBusy(false)
+    if (!res.ok) {
+      toast.error(json.error ?? `Failed to create user (HTTP ${res.status})`)
+      return
+    }
+    toast.success(`Created ${createForm.email}`)
+    setCreateOpen(false)
+    setCreateForm({ name: '', email: '', password: '', role: 'sales' })
+    setRefreshKey((k) => k + 1)
+  }
+
+  async function handleDeleteUser() {
+    if (!deleteTarget || deleteBusy) return
+    setDeleteBusy(true)
+    const res = await fetch('/api/admin/users', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: deleteTarget.user_id }),
+    })
+    const json = (await res.json().catch(() => ({}))) as { error?: string }
+    setDeleteBusy(false)
+    if (!res.ok) {
+      toast.error(json.error ?? `Failed to delete user (HTTP ${res.status})`)
+      return
+    }
+    toast.success(`Deleted ${deleteTarget.email}`)
+    setDeleteTarget(null)
+    setRefreshKey((k) => k + 1)
+  }
 
   async function handleRoleChange(userId: string, newRole: 'admin' | 'sales') {
     if (userId === profile?.user_id && newRole !== 'admin') {
       toast.error("You cannot remove your own admin role.")
       return
+    }
+    if (newRole === 'sales') {
+      const target = users.find((u) => u.user_id === userId)
+      if (target?.role === 'admin') {
+        const remainingAdmins = users.filter((u) =>
+          u.user_id !== userId && u.role === 'admin' && u.is_active !== false
+        ).length
+        if (remainingAdmins === 0) {
+          toast.error('Cannot demote the last active admin.')
+          return
+        }
+      }
     }
     setSaving(userId)
     const supabase = getSupabaseBrowserClient()
@@ -77,6 +158,18 @@ export default function UserManagementPage() {
       return
     }
     const newActive = currentIsActive === false ? true : false
+    if (!newActive) {
+      const target = users.find((u) => u.user_id === userId)
+      if (target?.role === 'admin') {
+        const remainingAdmins = users.filter((u) =>
+          u.user_id !== userId && u.role === 'admin' && u.is_active !== false
+        ).length
+        if (remainingAdmins === 0) {
+          toast.error('Cannot deactivate the last active admin.')
+          return
+        }
+      }
+    }
     setSaving(userId + '_active')
     const supabase = getSupabaseBrowserClient()
     const { error } = await supabase
@@ -113,11 +206,21 @@ export default function UserManagementPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-base font-semibold text-slate-900">User Management</h2>
-        <p className="mt-0.5 text-xs text-slate-500">
-          {loading ? 'Loading…' : `${users.length} users · ${activeCount} active · ${adminCount} admin · ${salesCount} sales`}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">User Management</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {loading ? 'Loading…' : `${users.length} users · ${activeCount} active · ${adminCount} admin · ${salesCount} sales`}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          className="gap-1.5 bg-blue-600 hover:bg-blue-700"
+          onClick={() => setCreateOpen(true)}
+        >
+          <UserPlus className="h-4 w-4" />
+          Create User
+        </Button>
       </div>
 
       {/* Summary */}
@@ -210,16 +313,29 @@ export default function UserManagementPage() {
                         : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        disabled={saving === u.user_id + '_active' || isCurrentUser}
-                        title={isCurrentUser ? 'Cannot deactivate your own account' : undefined}
-                        onClick={() => void handleToggleActive(u.user_id, u.is_active)}
-                      >
-                        {saving === u.user_id + '_active' ? '…' : isActive ? 'Deactivate' : 'Activate'}
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          disabled={saving === u.user_id + '_active' || isCurrentUser}
+                          title={isCurrentUser ? 'Cannot deactivate your own account' : undefined}
+                          onClick={() => void handleToggleActive(u.user_id, u.is_active)}
+                        >
+                          {saving === u.user_id + '_active' ? '…' : isActive ? 'Deactivate' : 'Activate'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                          disabled={isCurrentUser}
+                          title={isCurrentUser ? 'Cannot delete your own account' : 'Delete user'}
+                          onClick={() => setDeleteTarget(u)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Delete
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 )
@@ -232,8 +348,114 @@ export default function UserManagementPage() {
       <p className="text-xs text-slate-400">
         Role changes take effect on the user&apos;s next page load. Account activation requires the{' '}
         <code className="rounded bg-slate-100 px-1">is_active</code> column in{' '}
-        <code className="rounded bg-slate-100 px-1">user_profiles</code>.
+        <code className="rounded bg-slate-100 px-1">user_profiles</code>. User creation and deletion
+        require <code className="rounded bg-slate-100 px-1">SUPABASE_SERVICE_ROLE_KEY</code> to be
+        configured on the server.
       </p>
+
+      {/* Create User Dialog */}
+      <Dialog open={createOpen} onOpenChange={(open) => { if (!open && !createBusy) setCreateOpen(false) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New User</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Name</Label>
+              <Input
+                value={createForm.name}
+                onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Jane Doe"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Email</Label>
+              <Input
+                type="email"
+                value={createForm.email}
+                onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="jane@eitacies.com"
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Password</Label>
+              <Input
+                type="password"
+                value={createForm.password}
+                onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+              />
+              <p className="text-[11px] text-slate-400">Share this password with the user securely. They can change it after first login.</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Role</Label>
+              <Select
+                value={createForm.role}
+                onValueChange={(v) => { if (v) setCreateForm((f) => ({ ...f, role: v as 'admin' | 'sales' })) }}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sales">Sales</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter className="mt-3 flex justify-end gap-2">
+            <Button variant="outline" disabled={createBusy} onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={createBusy}
+              onClick={() => void handleCreateUser()}
+            >
+              {createBusy ? 'Creating…' : 'Create User'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete User Dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open && !deleteBusy) setDeleteTarget(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <AlertTriangle className="h-4 w-4" /> Delete user?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-700">
+            Permanently delete <span className="font-medium">{deleteTarget?.name ?? deleteTarget?.email}</span>?
+            Their Supabase auth account and profile will both be removed.
+          </p>
+          {deleteTarget && deleteTarget.leadsOwned > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs font-medium text-amber-800">
+                This user owns {deleteTarget.leadsOwned} lead{deleteTarget.leadsOwned !== 1 ? 's' : ''}.
+              </p>
+              <p className="mt-0.5 text-[11px] text-amber-700">
+                Reassign those leads first — the server will refuse deletion otherwise.
+              </p>
+            </div>
+          )}
+          <DialogFooter className="mt-2 flex justify-end gap-2">
+            <Button variant="outline" disabled={deleteBusy} onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteBusy}
+              onClick={() => void handleDeleteUser()}
+            >
+              {deleteBusy ? 'Deleting…' : 'Delete user'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

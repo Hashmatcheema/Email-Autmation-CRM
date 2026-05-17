@@ -3,7 +3,10 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { MoreVertical, FileText, Mail, Phone, Pencil, Send, Clock, ChevronDown, ExternalLink } from 'lucide-react'
+import {
+  MoreVertical, FileText, Mail, Phone, Pencil, Send, Clock, ChevronDown, ExternalLink,
+  Trash2, AlertTriangle,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/components/providers/AuthProvider'
@@ -13,7 +16,7 @@ import {
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -25,7 +28,7 @@ import {
 import { StageBadge, CategoryBadge, ScoreBadge, HiringSignalBadge } from '@/components/ui/status-badges'
 import { fetchActivities } from '@/lib/services/activities'
 import { fetchActiveTemplates } from '@/lib/services/templates'
-import { updateLeadStage, updateLeadNotes } from '@/lib/services/leads'
+import { updateLeadStage, updateLeadNotes, deleteLeads } from '@/lib/services/leads'
 import {
   LEAD_STAGES, STAGE_LABELS, TEMPLATE_TYPE_LABELS,
   CLIENT_RELATIONSHIP_LABELS, CLIENT_RELATIONSHIP_OPTIONS,
@@ -208,9 +211,26 @@ interface Props {
   colFilters: ColFilters
   onColFilterChange: (key: keyof ColFilters, value: string) => void
   isAdmin: boolean
+  /** Selection is optional — pages that don't use bulk actions can omit these. */
+  selectedIds?: Set<string>
+  onToggleSelect?: (leadId: string) => void
+  onToggleSelectAll?: (leadIds: string[]) => void
+  /** When false, hides the checkbox column entirely. Defaults to true when selection handlers are supplied. */
+  selectable?: boolean
 }
 
-export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, isAdmin }: Props) {
+const EMPTY_SELECTION = new Set<string>()
+
+export function LeadsTable({
+  leads, onRefresh, colFilters, onColFilterChange, isAdmin,
+  selectedIds = EMPTY_SELECTION,
+  onToggleSelect,
+  onToggleSelectAll,
+  selectable,
+}: Props) {
+  const showSelect = selectable ?? !!(onToggleSelect && onToggleSelectAll)
+  const handleToggleSelect = (id: string) => onToggleSelect?.(id)
+  const handleToggleSelectAll = (ids: string[]) => onToggleSelectAll?.(ids)
   const { profile } = useAuth()
   const router = useRouter()
 
@@ -227,6 +247,14 @@ export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, is
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [sendLoading, setSendLoading] = useState(false)
   const [templatesLoading, setTemplatesLoading] = useState(false)
+
+  // Single-row delete confirm (admin)
+  const [deleteLead, setDeleteLead] = useState<Lead | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const pageLeadIds = leads.map((l) => l.lead_id)
+  const allOnPageSelected = pageLeadIds.length > 0 && pageLeadIds.every((id) => selectedIds.has(id))
+  const someOnPageSelected = !allOnPageSelected && pageLeadIds.some((id) => selectedIds.has(id))
 
   const selectedTemplate = templates.find((t) => t.template_id === selectedTemplateId) ?? null
 
@@ -262,6 +290,20 @@ export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, is
       const { templates: t } = await fetchActiveTemplates()
       setTemplates(t)
       setTemplatesLoading(false)
+    }
+  }
+
+  async function handleDeleteSingle() {
+    if (!deleteLead) return
+    setDeleting(true)
+    const res = await deleteLeads([deleteLead.lead_id])
+    setDeleting(false)
+    if (res.error) {
+      toast.error(`Delete failed: ${res.error}`)
+    } else {
+      toast.success(`Deleted ${deleteLead.contact_name ?? 'lead'}`)
+      setDeleteLead(null)
+      onRefresh()
     }
   }
 
@@ -338,13 +380,31 @@ export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, is
         <Table className="min-w-[1480px] text-xs">
           <TableHeader>
             <TableRow className="border-slate-200 bg-slate-50 hover:bg-slate-50">
+              {showSelect && (
+                <TableHead className="w-[36px] py-2 sticky left-0 z-20 bg-slate-50 text-center">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all on this page"
+                    className="h-3.5 w-3.5 cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    checked={allOnPageSelected}
+                    ref={(el) => { if (el) el.indeterminate = someOnPageSelected }}
+                    onChange={() => handleToggleSelectAll(pageLeadIds)}
+                  />
+                </TableHead>
+              )}
               {/* Sticky: Actions */}
-              <TableHead className="w-[130px] py-2 sticky left-0 z-20 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <TableHead className={cn(
+                'w-[130px] py-2 sticky z-20 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500',
+                showSelect ? 'left-[36px]' : 'left-0',
+              )}>
                 Actions
               </TableHead>
               <TableHead className="w-[60px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Created</TableHead>
               {/* Sticky: Contact */}
-              <TableHead className="min-w-[130px] py-2 sticky left-[130px] z-20 bg-slate-50 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)] text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <TableHead className={cn(
+                'min-w-[130px] py-2 sticky z-20 bg-slate-50 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)] text-[11px] font-semibold uppercase tracking-wide text-slate-500',
+                showSelect ? 'left-[166px]' : 'left-[130px]',
+              )}>
                 Contact
               </TableHead>
               <TableHead className="min-w-[120px] py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Account</TableHead>
@@ -458,13 +518,35 @@ export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, is
           </TableHeader>
 
           <TableBody>
-            {leads.map((lead, idx) => (
+            {leads.map((lead, idx) => {
+              const isSelected = selectedIds.has(lead.lead_id)
+              const rowBgClass = isSelected ? 'bg-blue-50' : 'bg-white'
+              const rowHoverClass = isSelected ? 'group-hover:bg-blue-100' : 'group-hover:bg-slate-50'
+              return (
               <TableRow
                 key={lead.lead_id || idx}
-                className="group border-slate-100 transition-colors hover:bg-slate-50"
+                className={cn(
+                  'group border-slate-100 transition-colors',
+                  isSelected ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-slate-50',
+                )}
               >
+                {showSelect && (
+                  <TableCell className={cn('py-1.5 sticky left-0 z-10 text-center', rowBgClass, rowHoverClass)}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${lead.contact_name ?? lead.email ?? 'lead'}`}
+                      className="h-3.5 w-3.5 cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      checked={isSelected}
+                      onChange={() => handleToggleSelect(lead.lead_id)}
+                    />
+                  </TableCell>
+                )}
                 {/* Sticky: Actions */}
-                <TableCell className="py-1.5 pr-1 sticky left-0 z-10 bg-white group-hover:bg-slate-50">
+                <TableCell className={cn(
+                  'py-1.5 pr-1 sticky z-10',
+                  showSelect ? 'left-[36px]' : 'left-0',
+                  rowBgClass, rowHoverClass,
+                )}>
                   <div className="flex items-center gap-0.5">
                     <DropdownMenu>
                       <DropdownMenuTrigger
@@ -500,6 +582,18 @@ export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, is
                         >
                           Copy Email
                         </DropdownMenuItem>
+                        {isAdmin && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-red-600 focus:text-red-700"
+                              onClick={() => setDeleteLead(lead)}
+                            >
+                              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                              Delete Lead
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
 
@@ -568,13 +662,18 @@ export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, is
                 </TableCell>
 
                 {/* Sticky: Contact */}
-                <TableCell className="py-1.5 max-w-[160px] sticky left-[130px] z-10 bg-white group-hover:bg-slate-50 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)]">
+                <TableCell className={cn(
+                  'py-1.5 max-w-[160px] sticky z-10 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)]',
+                  showSelect ? 'left-[166px]' : 'left-[130px]',
+                  rowBgClass, rowHoverClass,
+                )}>
                   <Link
                     href={`/dashboard/leads/${lead.lead_id}`}
-                    className="block truncate font-medium text-slate-900 hover:text-blue-700 transition-colors"
-                    title={lead.contact_name ?? undefined}
+                    className="group/contact inline-flex max-w-full items-center gap-1 font-medium text-blue-700 hover:text-blue-900 hover:underline underline-offset-2 cursor-pointer transition-colors"
+                    title={lead.contact_name ? `${lead.contact_name} — open lead` : 'Open lead'}
                   >
-                    {lead.contact_name ?? '—'}
+                    <span className="truncate">{lead.contact_name ?? '—'}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0 opacity-0 group-hover/contact:opacity-100 transition-opacity" />
                   </Link>
                 </TableCell>
 
@@ -679,7 +778,8 @@ export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, is
                   )}
                 </TableCell>
               </TableRow>
-            ))}
+            )
+            })}
           </TableBody>
         </Table>
       </div>
@@ -844,6 +944,32 @@ export function LeadsTable({ leads, onRefresh, colFilters, onColFilterChange, is
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Single-lead Delete confirm */}
+      <Dialog open={!!deleteLead} onOpenChange={(open) => { if (!open) setDeleteLead(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <AlertTriangle className="h-4 w-4" /> Delete this lead?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-700">
+            {deleteLead?.contact_name ?? deleteLead?.email ?? 'This lead'} and all of its activity history will be permanently removed. This cannot be undone.
+          </p>
+          <DialogFooter className="mt-2 flex justify-end gap-2">
+            <Button variant="outline" disabled={deleting} onClick={() => setDeleteLead(null)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleting}
+              onClick={() => void handleDeleteSingle()}
+            >
+              {deleting ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

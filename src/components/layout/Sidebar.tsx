@@ -48,12 +48,17 @@ export function Sidebar() {
 
   function renderLink(item: NavItem) {
     const active = isActive(item)
+    // Only suppress navigation when already on the exact destination — otherwise
+    // sub-pages (e.g. /dashboard/leads/[lead_id]) can never click back up to the list.
+    const exact = item.dashboardRoot
+      ? DASHBOARD_PATHS.includes(pathname)
+      : pathname === item.href
     const Icon = item.icon
     return (
       <Link
         key={item.href}
         href={item.href}
-        onClick={(e) => { if (active) e.preventDefault() }}
+        onClick={(e) => { if (exact) e.preventDefault() }}
         className={cn(
           'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
           active

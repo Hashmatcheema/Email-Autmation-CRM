@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
-  Users, Star, Clock, MessageSquare, TrendingUp, Ban, Flame, ArrowRight, Plus, Upload, BarChart2, Mail,
+  Users, Star, Clock, MessageSquare, TrendingUp, Ban, Flame, ArrowRight, Plus, Upload, BarChart2, Mail, Sparkles,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { fetchLeadStats, type LeadStatsResult } from '@/lib/services/leads'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { buttonVariants } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { STAGE_LABELS, STAGE_COLORS, type Lead } from '@/lib/types'
 
@@ -21,15 +22,44 @@ const EMPTY: LeadStatsResult = {
 export default function AdminDashboard() {
   const [stats, setStats] = useState<LeadStatsResult>(EMPTY)
   const [loading, setLoading] = useState(true)
+  const [recsRunning, setRecsRunning] = useState(false)
+
+  async function loadStats() {
+    const result = await fetchLeadStats()
+    setStats(result)
+    setLoading(false)
+  }
 
   useEffect(() => {
-    async function load() {
+    void (async () => {
       const result = await fetchLeadStats()
       setStats(result)
       setLoading(false)
-    }
-    load()
+    })()
   }, [])
+
+  async function handleRunRecommendations() {
+    if (recsRunning) return
+    setRecsRunning(true)
+    try {
+      const res = await fetch('/api/n8n/recommendations/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const json = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) {
+        toast.error(json.error ?? 'Failed to run recommendations.')
+      } else {
+        toast.success('Recommendations workflow started.')
+        await loadStats()
+      }
+    } catch {
+      toast.error('Failed to reach recommendations workflow.')
+    } finally {
+      setRecsRunning(false)
+    }
+  }
 
   const statCards = [
     { label: 'Total Leads', value: stats.total, icon: Users, color: 'text-slate-600', bg: 'bg-slate-100' },
@@ -69,6 +99,16 @@ export default function AdminDashboard() {
         >
           <Mail className="h-4 w-4" /> Templates
         </Link>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={handleRunRecommendations}
+          disabled={recsRunning}
+        >
+          <Sparkles className="h-4 w-4" />
+          {recsRunning ? 'Running…' : 'Run Recommendations'}
+        </Button>
       </div>
 
       {/* KPI Cards */}

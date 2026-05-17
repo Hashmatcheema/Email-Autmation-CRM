@@ -7,6 +7,7 @@ import { Plus, Upload, Search, ChevronLeft, ChevronRight, X } from 'lucide-react
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/components/providers/AuthProvider'
 import { LeadsTable, type ColFilters } from '@/components/leads/LeadsTable'
+import { BulkActionBar } from '@/components/leads/BulkActionBar'
 import { buttonVariants } from '@/components/ui/button'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -95,6 +96,8 @@ function LeadsPageContent() {
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [colFilters, setColFilters] = useState<ColFilters>(() => ({
@@ -111,6 +114,35 @@ function LeadsPageContent() {
   function setColFilter(key: keyof ColFilters, value: string) {
     setColFilters(prev => ({ ...prev, [key]: value }))
     setPage(0)
+  }
+
+  function toggleSelect(leadId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(leadId)) next.delete(leadId)
+      else next.add(leadId)
+      return next
+    })
+  }
+
+  function toggleSelectAllOnPage(pageLeadIds: string[]) {
+    setSelectedIds((prev) => {
+      const allSelected = pageLeadIds.every((id) => prev.has(id))
+      const next = new Set(prev)
+      if (allSelected) {
+        for (const id of pageLeadIds) next.delete(id)
+      } else {
+        for (const id of pageLeadIds) next.add(id)
+      }
+      return next
+    })
+  }
+
+  function clearSelection() { setSelectedIds(new Set()) }
+
+  function handleBulkApplied() {
+    clearSelection()
+    setRefreshKey((k) => k + 1)
   }
 
   useEffect(() => {
@@ -176,7 +208,7 @@ function LeadsPageContent() {
               className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-1.5')}
             >
               <Upload className="h-4 w-4" />
-              Import CSV
+              Import
             </Link>
           )}
           <Link
@@ -246,13 +278,27 @@ function LeadsPageContent() {
           <p className="mt-1 text-xs text-red-500">{error}</p>
         </div>
       ) : (
-        <LeadsTable
-          leads={leads}
-          onRefresh={() => setRefreshKey((k) => k + 1)}
-          colFilters={colFilters}
-          onColFilterChange={setColFilter}
-          isAdmin={isAdmin}
-        />
+        <>
+          {selectedIds.size > 0 && profile && (
+            <BulkActionBar
+              selectedIds={Array.from(selectedIds)}
+              performedBy={profile.email}
+              isAdmin={isAdmin}
+              onClear={clearSelection}
+              onApplied={handleBulkApplied}
+            />
+          )}
+          <LeadsTable
+            leads={leads}
+            onRefresh={() => setRefreshKey((k) => k + 1)}
+            colFilters={colFilters}
+            onColFilterChange={setColFilter}
+            isAdmin={isAdmin}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onToggleSelectAll={toggleSelectAllOnPage}
+          />
+        </>
       )}
 
       {/* Pagination */}

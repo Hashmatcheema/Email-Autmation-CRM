@@ -3,7 +3,6 @@ import {
   forwardToN8n, webhookNotConfigured, webhookFailed, getSendEmailWebhookUrl,
 } from '@/lib/server/n8n'
 
-// Legacy route — kept for backward compatibility. New code should call /api/n8n/email/send.
 export async function POST(req: NextRequest) {
   const url = getSendEmailWebhookUrl()
   if (!url) return webhookNotConfigured('Email send')
