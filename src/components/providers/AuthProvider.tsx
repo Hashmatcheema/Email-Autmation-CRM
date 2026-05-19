@@ -30,9 +30,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [loading, setLoading] = useState(true)
+  // When supabase is null (missing env vars / SSR without config), skip auth loading.
+  const [loading, setLoading] = useState(supabase !== null)
 
   async function loadProfile(email: string) {
+    if (!supabase) return
     const { data } = await supabase
       .from('user_profiles')
       .select('*')
@@ -42,6 +44,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    if (!supabase) return
+
     supabase.auth.getSession().then((result: { data: { session: Session | null } }) => {
       const s = result.data.session
       setSession(s)
@@ -70,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   async function signOut() {
-    await supabase.auth.signOut()
+    await supabase?.auth.signOut()
   }
 
   const isAdmin = profile?.role === 'admin'
